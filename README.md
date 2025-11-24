@@ -183,7 +183,7 @@ All three execution modes use the same builder pattern:
 
 ```gleam
 import dream_http_client/client.{
-  method, scheme, host, port, path, query, add_header, body
+  method, scheme, host, port, path, query, add_header, body, timeout
 }
 import gleam/http.{Post, Https}
 
@@ -197,6 +197,7 @@ let request = client.new
   |> add_header("Content-Type", "application/json")
   |> add_header("Authorization", "Bearer " <> token)
   |> body(json_body)
+  |> timeout(60_000)  // 60 second timeout for slow APIs
 ```
 
 ### Blocking Requests - `send()`
@@ -236,9 +237,9 @@ stream_yielder(request)
     println("Received: " <> text)
   })
 
-// Or collect all chunks
+// Or collect all chunks (stream completes automatically)
 let chunks = stream_yielder(request)
-  |> to_list()
+  |> to_list()  // No need to use take() - stream stops when done!
 ```
 
 **Important:** This blocks the calling process while waiting for chunks.
@@ -402,6 +403,28 @@ let result = client.new
   |> send()
 ```
 
+### Configuring Timeouts
+
+All request types support timeout configuration. Default is 30 seconds:
+
+```gleam
+import dream_http_client/client.{host, path, timeout, send}
+
+// Short timeout for quick APIs
+let result = client.new
+  |> host("api.example.com")
+  |> path("/health")
+  |> timeout(5_000)  // 5 seconds
+  |> send()
+
+// Long timeout for slow operations
+let result = client.new
+  |> host("ml-api.example.com")
+  |> path("/train-model")
+  |> timeout(300_000)  // 5 minutes
+  |> stream_yielder()  // Works with all execution modes
+```
+
 ## API Reference
 
 ### Types
@@ -412,11 +435,12 @@ HTTP request configuration with all components:
 - `method`: HTTP method (GET, POST, etc.)
 - `scheme`: Protocol (HTTP or HTTPS)
 - `host`: Server hostname
-- `port`: Optional port number
+- `port`: Optional port number (defaults to 80 for HTTP, 443 for HTTPS)
 - `path`: Request path
 - `query`: Optional query string
 - `headers`: List of header name-value pairs
 - `body`: Request body as string
+- `timeout`: Optional timeout in milliseconds (defaults to 30000ms)
 
 #### `RequestId`
 
@@ -427,12 +451,25 @@ Opaque identifier for an active message-based stream. Returned from `stream_mess
 
 #### `StreamMessage`
 
-Union type for message-based streaming. All variants include the `RequestId`:
+Union type for message-based streaming. Most variants include the `RequestId`:
 
 - `StreamStart(request_id, headers)` - Stream started, initial headers received
 - `Chunk(request_id, data)` - Data chunk received (BitArray)
 - `StreamEnd(request_id, headers)` - Stream completed, trailing headers received
 - `StreamError(request_id, reason)` - Stream failed with error message
+- `DecodeError(reason)` - FFI corruption (should be reported as a bug)
+
+**About DecodeError:**
+
+`DecodeError` is a rare error indicating the Erlang→Gleam FFI boundary received
+a malformed message from `httpc`. This is **not a normal HTTP error** - it means:
+- Erlang/OTP version incompatibility with this library
+- Memory corruption or other serious runtime issue
+- A bug in this library's FFI code
+
+Unlike other variants, `DecodeError` does not include a `RequestId` because the
+request ID itself could not be decoded. If you see this error, please report it
+as a bug with the full error message at https://github.com/TrustBound/dream/issues
 
 ### Client Configuration (Builder Pattern)
 
@@ -444,6 +481,7 @@ Union type for message-based streaming. All variants include the `RequestId`:
 - `client.path(req, path)` - Set request path
 - `client.query(req, query)` - Set query string
 - `client.body(req, body)` - Set request body
+- `client.timeout(req, timeout_ms)` - Set request timeout in milliseconds
 - `client.add_header(req, name, value)` - Add a single header
 - `client.headers(req, headers)` - Replace all headers at once
 
@@ -458,10 +496,13 @@ Union type for message-based streaming. All variants include the `RequestId`:
 
 #### Yielder Streaming Mode
 
-- `client.stream_yielder(req) -> yielder.Yielder(bytes_tree.BytesTree)`
-  - Returns yielder that produces chunks sequentially
+- `client.stream_yielder(req) -> yielder.Yielder(Result(bytes_tree.BytesTree, String))`
+  - Returns yielder that produces `Result` values for each chunk
+  - `Ok(chunk)` - Successful chunk, more may follow
+  - `Error(reason)` - Terminal error, stream is done
+  - Normal completion: Yielder returns `Done` (no error yielded)
   - Pull-based: blocks while waiting for next chunk
-  - Use with `yielder.each()`, `yielder.fold()`, etc.
+  - Use with `yielder.each()`, `yielder.fold()`, `yielder.to_list()`, etc.
   - **Not suitable for OTP actors with concurrent operations**
 
 #### Message-Based Streaming Mode
@@ -525,11 +566,12 @@ HttpStream(StreamError(req_id, reason)) -> {
 ### Best Practices
 
 1. **Always handle `Error` cases** - Network operations can fail
-2. **Use timeouts** - Don't wait indefinitely for responses
-3. **Cancel streams when done** - Free resources with `cancel_stream()`
-4. **Track active streams** - Use a `Dict(RequestId, State)` in actors
-5. **Handle StreamError** - Network can fail mid-stream
-6. **Test error paths** - Simulate failures in tests
+2. **Set appropriate timeouts** - Use `client.timeout()` to configure request timeouts (default: 30s)
+3. **Handle yielder errors** - `stream_yielder()` produces `Result` values, check each one
+4. **Cancel streams when done** - Free resources with `cancel_stream()`
+5. **Track active streams** - Use a `Dict(RequestId, State)` in actors
+6. **Handle StreamError and DecodeError** - Network can fail mid-stream, FFI can corrupt
+7. **Test error paths** - Simulate failures in tests with slow/error endpoints
 
 ## Design Principles
 

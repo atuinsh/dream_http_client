@@ -1,7 +1,8 @@
 -module(dream_httpc_shim).
 
--export([request_stream/5, fetch_next/1, request_stream_messages/5, cancel_stream/1,
-         receive_stream_message/1, decode_stream_message_for_selector/1, normalize_headers/1]).
+-export([request_stream/6, fetch_next/2, request_stream_messages/6, cancel_stream/1,
+         receive_stream_message/1, decode_stream_message_for_selector/1, normalize_headers/1,
+         request_sync/5]).
 
 %% Start a streaming HTTP request
 %%
@@ -13,7 +14,7 @@
 %%   Receiver - Pid that will receive messages (unused, kept for compatibility)
 %%
 %% Returns: {ok, OwnerPid} where OwnerPid is the process handling the stream
-request_stream(Method, Url, Headers, Body, _Receiver) ->
+request_stream(Method, Url, Headers, Body, _Receiver, TimeoutMs) ->
     ok = ensure_started(ssl),
     ok = ensure_started(inets),
     ok = configure_httpc(),
@@ -21,19 +22,20 @@ request_stream(Method, Url, Headers, Body, _Receiver) ->
     NUrl = to_list(Url),
     NHeaders = to_headers(Headers),
     Req = build_req(NUrl, NHeaders, Body),
-    Owner = spawn(fun() -> stream_owner_loop(Method, Req, NUrl) end),
+    Owner = spawn(fun() -> stream_owner_loop(Method, Req, NUrl, TimeoutMs) end),
     {ok, Owner}.
 
 %% Fetch the next chunk from a streaming request
 %%
 %% Parameters:
-%%   OwnerPid - The owner process PID returned from request_stream/5
+%%   OwnerPid - The owner process PID returned from request_stream/6
+%%   TimeoutMs - Timeout in milliseconds
 %%
 %% Returns:
 %%   {chunk, Bin} - Next chunk of data
 %%   {finished, Headers} - Stream completed with response headers
 %%   {error, Reason} - Error occurred
-fetch_next(OwnerPid) ->
+fetch_next(OwnerPid, TimeoutMs) ->
     OwnerPid ! {fetch_next, self()},
     receive
         {stream_chunk, Bin} ->
@@ -42,13 +44,13 @@ fetch_next(OwnerPid) ->
             {finished, Headers};
         {stream_error, Reason} ->
             {error, Reason}
-    after 600000 ->
+    after TimeoutMs ->
         {error, timeout}
     end.
 
 %% Stream owner process: starts httpc in continuous mode and services fetch_next requests
-stream_owner_loop(Method, Req, _Url) ->
-    HttpOpts = [{timeout, 600000}, {connect_timeout, 15000}, {autoredirect, true}],
+stream_owner_loop(Method, Req, _Url, TimeoutMs) ->
+    HttpOpts = [{timeout, TimeoutMs}, {connect_timeout, 15000}, {autoredirect, true}],
     Opts = [{stream, self}, {sync, false}],
     case httpc:request(Method, Req, HttpOpts, Opts) of
         {ok, RequestId} ->
@@ -217,7 +219,7 @@ build_req(Url, Headers, Body) ->
 %%   {http, {RequestId, stream, BinaryChunk}}
 %%   {http, {RequestId, stream_end, Headers}}
 %%   {http, {RequestId, {error, Reason}}}
-request_stream_messages(Method, Url, Headers, Body, _ReceiverPid) ->
+request_stream_messages(Method, Url, Headers, Body, _ReceiverPid, TimeoutMs) ->
     ok = ensure_started(ssl),
     ok = ensure_started(inets),
     ok = configure_httpc(),
@@ -226,7 +228,7 @@ request_stream_messages(Method, Url, Headers, Body, _ReceiverPid) ->
     NHeaders = to_headers(Headers),
     Req = build_req(NUrl, NHeaders, Body),
 
-    HttpOpts = [{timeout, 600000}, {connect_timeout, 15000}, {autoredirect, true}],
+    HttpOpts = [{timeout, TimeoutMs}, {connect_timeout, 15000}, {autoredirect, true}],
     StreamOpts = [{stream, self}, {sync, false}],
 
     httpc:request(Method, Req, HttpOpts, StreamOpts).
@@ -274,15 +276,13 @@ receive_stream_message(TimeoutMs) ->
 
 %% Decode an httpc stream message for selector integration
 %%
-%% This function is designed to be used with Gleam's process selectors.
-%% It takes the dynamic message and returns a simplified tuple.
-%% Panics if the message format is unexpected (which is fine for selectors).
+%% Erlang does ALL the heavy lifting:
+%% - Receives FULL {http, InnerTuple} messages from selector
+%% - Pattern matches on all httpc message variants
+%% - Normalizes headers (charlist -> binary)
+%% - Returns simple {Tag, RequestId, Data} tuple
 %%
-%% Parameters:
-%%   Message - The raw Erlang message
-%%
-%% Returns: {Tag, RequestId, Data}
-%%   Tag is one of: stream_start, chunk, stream_end, stream_error
+%% Gleam just decodes the simple tuple - no raw httpc knowledge needed.
 decode_stream_message_for_selector({http, InnerMessage}) ->
     case InnerMessage of
         {RequestId, stream_start, Headers} ->
@@ -316,6 +316,40 @@ to_binary(List) when is_list(List) ->
     unicode:characters_to_binary(List);
 to_binary(Other) ->
     iolist_to_binary(io_lib:format("~p", [Other])).
+
+%% Synchronous HTTP request - for blocking send() calls
+%%
+%% This is the RIGHT way to do synchronous HTTP requests.
+%% Don't use streaming mode for non-streaming use cases.
+%%
+%% Parameters:
+%%   Method - HTTP method atom (get, post, put, delete, etc.)
+%%   Url - Full URL as a string
+%%   Headers - List of {Key, Value} tuples
+%%   Body - Request body as binary
+%%
+%% Returns:
+%%   {ok, Body} - Response body as binary
+%%   {error, Reason} - Error string
+request_sync(Method, Url, Headers, Body, TimeoutMs) ->
+    ok = ensure_started(ssl),
+    ok = ensure_started(inets),
+    ok = configure_httpc(),
+
+    NUrl = to_list(Url),
+    NHeaders = to_headers(Headers),
+    Req = build_req(NUrl, NHeaders, Body),
+
+    %% Use synchronous mode WITHOUT streaming - this is what send() should use
+    HttpOpts = [{timeout, TimeoutMs}, {connect_timeout, 15000}, {autoredirect, true}],
+    Opts = [{sync, true}, {body_format, binary}],
+
+    case httpc:request(Method, Req, HttpOpts, Opts) of
+        {ok, {{_Version, _StatusCode, _ReasonPhrase}, _Headers, ResponseBody}} ->
+            {ok, ResponseBody};
+        {error, Reason} ->
+            {error, format_error(Reason)}
+    end.
 
 format_error(Reason) ->
     iolist_to_binary(io_lib:format("~p", [Reason])).

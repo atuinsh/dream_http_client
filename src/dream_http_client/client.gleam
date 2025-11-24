@@ -49,14 +49,17 @@
 //// import dream_http_client/client.{host, path, stream_yielder}
 //// import gleam/yielder.{each}
 //// import gleam/bytes_tree.{to_string}
-//// import gleam/io.{print}
+//// import gleam/io.{print, println_error}
 ////
 //// client.new
 //// |> host("api.openai.com")
 //// |> path("/v1/chat/completions")
 //// |> stream_yielder()
-//// |> each(fn(chunk) {
-////   print(to_string(chunk))
+//// |> each(fn(result) {
+////   case result {
+////     Ok(chunk) -> print(to_string(chunk))
+////     Error(reason) -> println_error("Stream error: " <> reason)
+////   }
 //// })
 //// ```
 ////
@@ -90,10 +93,33 @@
 ////   case msg {
 ////     HttpStream(Chunk(req_id, data)) -> process_chunk(data, state)
 ////     HttpStream(StreamEnd(req_id, _)) -> cleanup(req_id, state)
-////     HttpStream(StreamError(req_id, reason)) -> handle_error(state)
+////     HttpStream(StreamError(req_id, reason)) -> handle_error(req_id, reason, state)
 ////     HttpStream(StreamStart(_, _)) -> continue(state)
+////     HttpStream(DecodeError(reason)) -> {
+////       // FFI corruption - report as bug
+////       log_critical_error("DecodeError: " <> reason)
+////       continue(state)
+////     }
 ////   }
 //// }
+//// ```
+////
+//// ## Configuration
+////
+//// All execution modes support the same builder pattern for configuration:
+//// - **Timeouts**: Use `timeout()` to set request timeout (default: 30 seconds)
+//// - **Headers**: Use `add_header()` for incremental or `headers()` for batch
+//// - **Method/Path/Query**: Standard HTTP request components
+////
+//// Example with timeout:
+////
+//// ```gleam
+//// import dream_http_client/client.{host, timeout, send}
+////
+//// client.new
+//// |> host("slow-api.example.com")
+//// |> timeout(60_000)  // 60 second timeout
+//// |> send()
 //// ```
 
 import dream_http_client/internal
@@ -104,6 +130,7 @@ import gleam/erlang/atom
 import gleam/erlang/process
 import gleam/http
 import gleam/http/request
+import gleam/int
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
@@ -125,6 +152,7 @@ import gleam/yielder
 /// - `query`: Optional query string (e.g., "?page=1&limit=10")
 /// - `headers`: List of header name-value pairs
 /// - `body`: The request body as a string
+/// - `timeout`: Optional timeout in milliseconds (defaults to 30000ms)
 pub type ClientRequest {
   ClientRequest(
     method: http.Method,
@@ -135,6 +163,7 @@ pub type ClientRequest {
     query: Option(String),
     headers: List(#(String, String)),
     body: String,
+    timeout: Option(Int),
   )
 }
 
@@ -149,6 +178,7 @@ pub type ClientRequest {
 /// - Query: None
 /// - Headers: [] (empty)
 /// - Body: "" (empty)
+/// - Timeout: None (uses default 30000ms)
 ///
 /// Use this as the starting point for building requests with the builder pattern.
 ///
@@ -172,6 +202,7 @@ pub const new = ClientRequest(
   query: None,
   headers: [],
   body: "",
+  timeout: None,
 )
 
 /// Set the HTTP method for the request
@@ -403,6 +434,28 @@ pub fn body(client_request: ClientRequest, body_value: String) -> ClientRequest 
   ClientRequest(..client_request, body: body_value)
 }
 
+/// Set the timeout for the request in milliseconds
+///
+/// Sets how long to wait for a response before timing out. If not set,
+/// defaults to 30000ms (30 seconds).
+///
+/// ## Parameters
+///
+/// - `timeout_ms`: Timeout duration in milliseconds
+///
+/// ## Example
+///
+/// ```gleam
+/// import dream_http_client/client.{host, timeout}
+///
+/// client.new
+/// |> host("slow-api.example.com")
+/// |> timeout(60_000)  // 60 second timeout
+/// ```
+pub fn timeout(client_request: ClientRequest, timeout_ms: Int) -> ClientRequest {
+  ClientRequest(..client_request, timeout: option.Some(timeout_ms))
+}
+
 /// Add a header to the request
 ///
 /// Adds a single header to the existing headers list without replacing them.
@@ -460,7 +513,24 @@ pub opaque type RequestId {
 ///
 /// 1. `StreamStart` - Headers received, body chunks coming
 /// 2. `Chunk` - Zero or more data chunks
-/// 3. `StreamEnd` or `StreamError` - Stream completed
+/// 3. `StreamEnd` or `StreamError` - Stream completed normally
+/// 4. `DecodeError` - FFI layer corruption (rare, should be reported as a bug)
+///
+/// ## DecodeError
+///
+/// `DecodeError` indicates the Erlang→Gleam FFI boundary received a malformed
+/// message from `httpc`. This is **not a normal HTTP error** - it means either:
+///
+/// - Erlang/OTP version incompatibility with this library
+/// - Memory corruption or other serious runtime issue
+/// - A bug in this library's FFI code
+///
+/// **What to do:** If you see a `DecodeError`, please report it as a bug at
+/// https://github.com/maxdeviant/dream/issues with the full error message.
+/// The error message includes debug information to help diagnose the issue.
+///
+/// Unlike `StreamError` which has a `RequestId`, `DecodeError` does not because
+/// the request ID itself could not be decoded from the corrupted message.
 pub type StreamMessage {
   /// Stream started, headers received
   StreamStart(request_id: RequestId, headers: List(#(String, String)))
@@ -468,8 +538,10 @@ pub type StreamMessage {
   Chunk(request_id: RequestId, data: BitArray)
   /// Stream completed successfully
   StreamEnd(request_id: RequestId, headers: List(#(String, String)))
-  /// Stream failed with error
+  /// Stream failed with error (connection drop, timeout, HTTP error, etc.)
   StreamError(request_id: RequestId, reason: String)
+  /// Failed to decode stream message from Erlang FFI (indicates library bug)
+  DecodeError(reason: String)
 }
 
 // ============================================================================
@@ -520,31 +592,42 @@ pub type StreamMessage {
 /// }
 /// ```
 pub fn send(client_request: ClientRequest) -> Result(String, String) {
-  let chunks = stream_yielder(client_request) |> yielder.to_list
+  let http_req = to_http_request(client_request)
+  let url = build_url(http_req)
+  let method_atom = internal.atomize_method(http_req.method)
+  let method_dynamic = atom.to_dynamic(method_atom)
+  let body = <<http_req.body:utf8>>
+  let timeout_value = get_timeout(client_request)
 
-  case chunks {
-    [] -> Ok("")
-    [single] -> convert_single_chunk_to_string(single)
-    multiple -> convert_multiple_chunks_to_string(multiple)
+  case send_sync(method_dynamic, url, http_req.headers, body, timeout_value) {
+    Ok(response_body) -> {
+      response_body
+      |> bit_array.to_string
+      |> result.map_error(convert_string_error)
+    }
+    Error(error_msg) -> Error(error_msg)
   }
 }
 
-fn convert_single_chunk_to_string(
-  chunk: bytes_tree.BytesTree,
-) -> Result(String, String) {
-  bytes_tree.to_bit_array(chunk)
-  |> bit_array.to_string
-  |> result.map_error(fn(_) { "Failed to convert response to string" })
+fn convert_string_error(_error: Nil) -> String {
+  "Failed to convert response to string"
 }
 
-fn convert_multiple_chunks_to_string(
-  chunks: List(bytes_tree.BytesTree),
-) -> Result(String, String) {
-  bytes_tree.concat(chunks)
-  |> bytes_tree.to_bit_array
-  |> bit_array.to_string
-  |> result.map_error(fn(_) { "Failed to convert response to string" })
+fn get_timeout(client_request: ClientRequest) -> Int {
+  case client_request.timeout {
+    Some(timeout_value) -> timeout_value
+    None -> 30_000
+  }
 }
+
+@external(erlang, "dream_httpc_shim", "request_sync")
+fn send_sync(
+  method: d.Dynamic,
+  url: String,
+  headers: List(#(String, String)),
+  body: BitArray,
+  timeout_ms: Int,
+) -> Result(BitArray, String)
 
 /// Stream HTTP response chunks using a yielder
 ///
@@ -559,8 +642,22 @@ fn convert_multiple_chunks_to_string(
 ///
 /// **For OTP actors with concurrency, use `stream_messages()` instead.**
 ///
-/// The yielder produces `Next(chunk, new_state)` for each chunk until the stream
-/// completes, then produces `Done`.
+/// ## Error Semantics
+///
+/// The yielder produces `Result(BytesTree, String)` for each chunk:
+/// - `Ok(chunk)` - Successful chunk, more may follow
+/// - `Error(reason)` - **Terminal error**, stream is done
+///
+/// After an `Error`, the yielder immediately returns `Done` on the next call.
+/// This design reflects that HTTP stream errors (timeouts, connection drops,
+/// etc.) are **not recoverable** - you cannot continue reading from a broken stream.
+///
+/// **Normal stream completion**: When the stream finishes successfully, the yielder
+/// returns `Done` (no more items). The stream does NOT yield an error for normal completion.
+///
+/// Possible error reasons (actual errors only):
+/// - `"timeout"` - Request timed out
+/// - Connection errors from `httpc`
 ///
 /// ## Parameters
 ///
@@ -568,10 +665,12 @@ fn convert_multiple_chunks_to_string(
 ///
 /// ## Returns
 ///
-/// A `Yielder` that produces `BytesTree` chunks. Use `yielder.each()` to process
-/// chunks, or `yielder.to_list()` to collect all chunks.
+/// A `Yielder` that produces `Result(BytesTree, String)`. Always check each
+/// result - errors are terminal and mean the stream has ended.
 ///
-/// ## Example
+/// ## Examples
+///
+/// **Streaming and processing chunks as they arrive:**
 ///
 /// ```gleam
 /// import dream_http_client/client.{host, path, stream_yielder}
@@ -579,29 +678,78 @@ fn convert_multiple_chunks_to_string(
 /// import gleam/bytes_tree.{to_string}
 /// import gleam/io.{print}
 ///
-/// // Stream and process chunks
 /// client.new
 ///   |> host("api.openai.com")
 ///   |> path("/v1/chat/completions")
 ///   |> stream_yielder()
-///   |> each(fn(chunk) {
-///     let body = to_string(chunk)
-///     print(body)
+///   |> each(fn(result) {
+///     case result {
+///       Ok(chunk) -> print(to_string(chunk))
+///       Error(reason) -> {
+///         io.println_error("Stream error: " <> reason)
+///         // Stream is now done, no more chunks will arrive
+///       }
+///     }
 ///   })
+/// ```
+///
+/// **Collecting all chunks into a list:**
+///
+/// ```gleam
+/// import dream_http_client/client.{host, path, stream_yielder}
+/// import gleam/yielder
+/// import gleam/list
+/// import gleam/bytes_tree
+/// import gleam/string
+///
+/// // The stream automatically completes when done - no need to use take()!
+/// let chunks = 
+///   client.new
+///   |> host("example.com")
+///   |> path("/data")
+///   |> stream_yielder()
+///   |> yielder.to_list()
+///
+/// // Handle results
+/// case list.try_map(chunks, fn(r) { r }) {
+///   Ok(chunk_list) -> {
+///     // Concatenate all chunks
+///     let body = 
+///       chunk_list
+///       |> list.map(bytes_tree.to_string)
+///       |> list.map(fn(r) { result.unwrap(r, "") })
+///       |> string.join("")
+///     Ok(body)
+///   }
+///   Error(reason) -> Error("Stream failed: " <> reason)
+/// }
 /// ```
 pub fn stream_yielder(
   req: ClientRequest,
-) -> yielder.Yielder(bytes_tree.BytesTree) {
+) -> yielder.Yielder(Result(bytes_tree.BytesTree, String)) {
   let http_req = to_http_request(req)
-  let unfolder = create_yielder_unfolder(http_req)
-  yielder.unfold(None, unfolder)
+  let timeout_value = get_timeout(req)
+  // Pass dependencies explicitly in state instead of hiding in closure
+  let initial_state =
+    YielderState(owner: None, http_req: http_req, timeout_ms: timeout_value)
+  yielder.unfold(initial_state, handle_yielder_unfold_with_deps)
 }
 
-fn create_yielder_unfolder(
-  http_req: request.Request(String),
-) -> fn(Option(d.Dynamic)) ->
-  yielder.Step(bytes_tree.BytesTree, Option(d.Dynamic)) {
-  fn(state) { handle_yielder_unfold(state, http_req) }
+type YielderState {
+  YielderState(
+    owner: Option(d.Dynamic),
+    http_req: request.Request(String),
+    timeout_ms: Int,
+  )
+}
+
+fn handle_yielder_unfold_with_deps(
+  state: YielderState,
+) -> yielder.Step(Result(bytes_tree.BytesTree, String), YielderState) {
+  case state.owner {
+    None -> handle_yielder_start_with_state(state)
+    Some(owner) -> handle_yielder_next_with_state(owner, state)
+  }
 }
 
 fn to_http_request(client_request: ClientRequest) -> request.Request(String) {
@@ -617,33 +765,32 @@ fn to_http_request(client_request: ClientRequest) -> request.Request(String) {
   )
 }
 
-fn handle_yielder_unfold(
-  state: Option(d.Dynamic),
-  http_req: request.Request(String),
-) -> yielder.Step(bytes_tree.BytesTree, Option(d.Dynamic)) {
-  case state {
-    None -> handle_yielder_start(http_req)
-    Some(owner) -> handle_yielder_next(owner)
-  }
-}
-
-fn handle_yielder_start(
-  http_req: request.Request(String),
-) -> yielder.Step(bytes_tree.BytesTree, Option(d.Dynamic)) {
-  let request_result = internal.start_httpc_stream(http_req)
+fn handle_yielder_start_with_state(
+  state: YielderState,
+) -> yielder.Step(Result(bytes_tree.BytesTree, String), YielderState) {
+  let request_result =
+    internal.start_httpc_stream(state.http_req, state.timeout_ms)
   let owner = internal.extract_owner_pid(request_result)
-  case internal.receive_next(owner) {
-    Ok(bin) -> yielder.Next(bytes_tree.from_bit_array(bin), Some(owner))
-    Error(_) -> yielder.Done
+  case internal.receive_next(owner, state.timeout_ms) {
+    Ok(option.Some(bin)) ->
+      yielder.Next(
+        Ok(bytes_tree.from_bit_array(bin)),
+        YielderState(..state, owner: Some(owner)),
+      )
+    Ok(option.None) -> yielder.Done
+    Error(error_reason) -> yielder.Next(Error(error_reason), state)
   }
 }
 
-fn handle_yielder_next(
+fn handle_yielder_next_with_state(
   owner: d.Dynamic,
-) -> yielder.Step(bytes_tree.BytesTree, Option(d.Dynamic)) {
-  case internal.receive_next(owner) {
-    Ok(bin) -> yielder.Next(bytes_tree.from_bit_array(bin), Some(owner))
-    Error(_) -> yielder.Done
+  state: YielderState,
+) -> yielder.Step(Result(bytes_tree.BytesTree, String), YielderState) {
+  case internal.receive_next(owner, state.timeout_ms) {
+    Ok(option.Some(bin)) ->
+      yielder.Next(Ok(bytes_tree.from_bit_array(bin)), state)
+    Ok(option.None) -> yielder.Done
+    Error(error_reason) -> yielder.Next(Error(error_reason), state)
   }
 }
 
@@ -712,22 +859,39 @@ pub fn stream_messages(req: ClientRequest) -> Result(RequestId, String) {
   let method_atom = internal.atomize_method(http_req.method)
   let body = <<http_req.body:utf8>>
   let me = process.self()
+  let timeout_value = get_timeout(req)
 
   let result =
-    internal.start_stream_messages(method_atom, url, http_req.headers, body, me)
+    internal.start_stream_messages(
+      method_atom,
+      url,
+      http_req.headers,
+      body,
+      me,
+      timeout_value,
+    )
 
   parse_stream_start_result(result)
 }
 
 fn build_url(req: request.Request(String)) -> String {
-  http.scheme_to_string(req.scheme) <> "://" <> req.host <> req.path
+  let port_string = case req.port {
+    option.Some(p) -> ":" <> int.to_string(p)
+    option.None -> ""
+  }
+  http.scheme_to_string(req.scheme)
+  <> "://"
+  <> req.host
+  <> port_string
+  <> req.path
 }
 
 fn parse_stream_start_result(result: d.Dynamic) -> Result(RequestId, String) {
   let tag_result = d.run(result, d.at([0], d.dynamic))
   case tag_result {
     Ok(tag_dyn) -> parse_stream_start_tag(tag_dyn, result)
-    Error(_) -> Error("Failed to parse httpc response")
+    Error(decode_errors) ->
+      Error("Failed to parse httpc response: " <> string.inspect(decode_errors))
   }
 }
 
@@ -747,7 +911,8 @@ fn extract_request_id(result: d.Dynamic) -> Result(RequestId, String) {
   let id_result = d.run(result, d.at([1], d.dynamic))
   case id_result {
     Ok(id_dyn) -> Ok(RequestId(internal_id: id_dyn))
-    Error(_) -> Error("Failed to extract request ID")
+    Error(decode_errors) ->
+      Error("Failed to extract request ID: " <> string.inspect(decode_errors))
   }
 }
 
@@ -758,7 +923,13 @@ fn extract_error_reason(result: d.Dynamic) -> Result(RequestId, String) {
       let reason = string.inspect(reason_dyn)
       Error("Failed to start stream: " <> reason)
     }
-    Error(_) -> Error("Failed to start stream")
+    Error(decode_error) -> {
+      Error(
+        "Failed to start stream (decode error: "
+        <> string.inspect(decode_error)
+        <> ")",
+      )
+    }
   }
 }
 
@@ -817,19 +988,45 @@ fn apply_mapper_to_dynamic(
   dyn: d.Dynamic,
   mapper: fn(StreamMessage) -> msg,
 ) -> msg {
+  // Erlang does the heavy lifting: converts raw httpc messages to clean format
+  // We just decode the simple {Tag, RequestId, Data} tuple
   let simplified = internal.decode_stream_message_for_selector(dyn)
   let stream_msg = decode_simplified_message(simplified)
   mapper(stream_msg)
 }
 
 fn decode_simplified_message(dyn: d.Dynamic) -> StreamMessage {
+  // Decode the clean {Tag, RequestId, Data} tuple from Erlang
   let tag_result = d.run(dyn, d.at([0], d.dynamic))
   let req_id_result = d.run(dyn, d.at([1], d.dynamic))
   let data_result = d.run(dyn, d.at([2], d.dynamic))
 
   case tag_result {
     Ok(tag_dyn) -> decode_with_tag(tag_dyn, req_id_result, data_result)
-    Error(_) -> panic as "Failed to decode tag from stream message"
+    Error(decode_error) -> handle_tag_decode_error(decode_error, req_id_result)
+  }
+}
+
+fn handle_tag_decode_error(
+  decode_error: List(d.DecodeError),
+  req_id_result: Result(d.Dynamic, List(d.DecodeError)),
+) -> StreamMessage {
+  let error_msg =
+    "Internal error: Failed to decode stream message tag: "
+    <> string.inspect(decode_error)
+  case req_id_result {
+    Ok(req_id_dyn) -> {
+      let req_id = RequestId(internal_id: req_id_dyn)
+      StreamError(req_id, error_msg)
+    }
+    Error(req_id_error) -> {
+      let full_error_msg =
+        error_msg
+        <> " (also failed to decode request ID: "
+        <> string.inspect(req_id_error)
+        <> ")"
+      DecodeError(full_error_msg)
+    }
   }
 }
 
@@ -844,29 +1041,14 @@ fn decode_with_tag(
       let req_id = RequestId(internal_id: req_id_dyn)
       decode_by_tag(tag, req_id, data_result)
     }
-    Error(_) -> panic as "Failed to decode request ID from stream message"
+    Error(decode_error) -> {
+      // Can't decode request ID - return DecodeError
+      let error_msg =
+        "Internal error: Failed to decode request ID from stream message: "
+        <> string.inspect(decode_error)
+      DecodeError(error_msg)
+    }
   }
-}
-
-fn decode_headers(dyn: d.Dynamic) -> List(#(String, String)) {
-  // Headers are normalized to string tuples by the Erlang shim
-  let header_decoder =
-    d.at([0], d.string)
-    |> d.then(decode_header_value)
-
-  case d.run(dyn, d.list(header_decoder)) {
-    Ok(headers) -> headers
-    Error(_) -> []
-  }
-}
-
-fn decode_header_value(name: String) -> d.Decoder(#(String, String)) {
-  d.at([1], d.string)
-  |> d.map(pair_with_name(_, name))
-}
-
-fn pair_with_name(value: String, name: String) -> #(String, String) {
-  #(name, value)
 }
 
 fn decode_by_tag(
@@ -879,7 +1061,8 @@ fn decode_by_tag(
     "chunk" -> decode_chunk(req_id, data_result)
     "stream_end" -> decode_stream_end(req_id, data_result)
     "stream_error" -> decode_stream_error(req_id, data_result)
-    _ -> panic as "Unknown stream message tag"
+    _ ->
+      StreamError(req_id, "Internal error: Unknown stream message tag: " <> tag)
   }
 }
 
@@ -888,11 +1071,28 @@ fn decode_stream_start(
   data_result: Result(d.Dynamic, List(d.DecodeError)),
 ) -> StreamMessage {
   case data_result {
-    Ok(headers_dyn) -> {
-      let headers = decode_headers(headers_dyn)
-      StreamStart(req_id, headers)
+    Ok(headers_dyn) -> decode_stream_start_headers(req_id, headers_dyn)
+    Error(decode_error) -> {
+      let error_msg =
+        "Failed to get headers data in StreamStart: "
+        <> string.inspect(decode_error)
+      StreamError(req_id, error_msg)
     }
-    Error(_) -> StreamStart(req_id, [])
+  }
+}
+
+fn decode_stream_start_headers(
+  req_id: RequestId,
+  headers_dyn: d.Dynamic,
+) -> StreamMessage {
+  case decode_headers(headers_dyn) {
+    Ok(headers) -> StreamStart(req_id, headers)
+    Error(header_decode_error) -> {
+      let error_msg =
+        "Failed to decode headers in StreamStart: "
+        <> string.inspect(header_decode_error)
+      StreamError(req_id, error_msg)
+    }
   }
 }
 
@@ -902,14 +1102,24 @@ fn decode_chunk(
 ) -> StreamMessage {
   case data_result {
     Ok(data_dyn) -> decode_chunk_data(req_id, data_dyn)
-    Error(_) -> panic as "Failed to get chunk data"
+    Error(decode_error) -> {
+      let error_msg =
+        "Internal error: Failed to get chunk data: "
+        <> string.inspect(decode_error)
+      StreamError(req_id, error_msg)
+    }
   }
 }
 
 fn decode_chunk_data(req_id: RequestId, data_dyn: d.Dynamic) -> StreamMessage {
   case d.run(data_dyn, d.bit_array) {
     Ok(data) -> Chunk(req_id, data)
-    Error(_) -> panic as "Failed to decode chunk data"
+    Error(decode_error) -> {
+      let error_msg =
+        "Internal error: Failed to decode chunk data: "
+        <> string.inspect(decode_error)
+      StreamError(req_id, error_msg)
+    }
   }
 }
 
@@ -918,11 +1128,28 @@ fn decode_stream_end(
   data_result: Result(d.Dynamic, List(d.DecodeError)),
 ) -> StreamMessage {
   case data_result {
-    Ok(headers_dyn) -> {
-      let headers = decode_headers(headers_dyn)
-      StreamEnd(req_id, headers)
+    Ok(headers_dyn) -> decode_stream_end_headers(req_id, headers_dyn)
+    Error(decode_error) -> {
+      let error_msg =
+        "Failed to get trailing headers data in StreamEnd: "
+        <> string.inspect(decode_error)
+      StreamError(req_id, error_msg)
     }
-    Error(_) -> StreamEnd(req_id, [])
+  }
+}
+
+fn decode_stream_end_headers(
+  req_id: RequestId,
+  headers_dyn: d.Dynamic,
+) -> StreamMessage {
+  case decode_headers(headers_dyn) {
+    Ok(headers) -> StreamEnd(req_id, headers)
+    Error(header_decode_error) -> {
+      let error_msg =
+        "Failed to decode trailing headers in StreamEnd: "
+        <> string.inspect(header_decode_error)
+      StreamError(req_id, error_msg)
+    }
   }
 }
 
@@ -932,7 +1159,13 @@ fn decode_stream_error(
 ) -> StreamMessage {
   case data_result {
     Ok(reason_dyn) -> decode_error_reason(req_id, reason_dyn)
-    Error(_) -> StreamError(req_id, "Unknown error")
+    Error(decode_error) -> {
+      let error_msg =
+        "Stream error (failed to decode error reason: "
+        <> string.inspect(decode_error)
+        <> ")"
+      StreamError(req_id, error_msg)
+    }
   }
 }
 
@@ -942,8 +1175,34 @@ fn decode_error_reason(
 ) -> StreamMessage {
   case d.run(reason_dyn, d.string) {
     Ok(reason) -> StreamError(req_id, reason)
-    Error(_) -> StreamError(req_id, "Unknown error")
+    Error(decode_error) -> {
+      let error_msg =
+        "Stream error (failed to decode error string: "
+        <> string.inspect(decode_error)
+        <> ")"
+      StreamError(req_id, error_msg)
+    }
   }
+}
+
+fn decode_headers(
+  dyn: d.Dynamic,
+) -> Result(List(#(String, String)), List(d.DecodeError)) {
+  // Headers are normalized to string tuples by the Erlang shim
+  let header_decoder =
+    d.at([0], d.string)
+    |> d.then(decode_header_value)
+
+  d.run(dyn, d.list(header_decoder))
+}
+
+fn decode_header_value(name: String) -> d.Decoder(#(String, String)) {
+  d.at([1], d.string)
+  |> d.map(pair_with_name(_, name))
+}
+
+fn pair_with_name(value: String, name: String) -> #(String, String) {
+  #(name, value)
 }
 
 /// Cancel an active streaming request
