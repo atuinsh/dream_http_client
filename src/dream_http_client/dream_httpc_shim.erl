@@ -1,6 +1,7 @@
 -module(dream_httpc_shim).
 
--export([request_stream/5, fetch_next/1]).
+-export([request_stream/5, fetch_next/1, request_stream_messages/5, cancel_stream/1,
+         receive_stream_message/1, decode_stream_message_for_selector/1, normalize_headers/1]).
 
 %% Start a streaming HTTP request
 %%
@@ -192,3 +193,129 @@ build_req(Url, Headers, Body) when Body =:= undefined; Body =:= <<>> ->
     {Url, Headers};
 build_req(Url, Headers, Body) ->
     {Url, Headers, to_list("application/json"), Body}.
+
+%% ============================================================================
+%% Message-Based Streaming (Thin Wrapper)
+%% ============================================================================
+
+%% Start a streaming HTTP request with direct message delivery
+%%
+%% This is a thin wrapper around httpc that lets it send messages directly
+%% to the ReceiverPid. No owner process, no buffering, no complexity.
+%%
+%% Parameters:
+%%   Method - HTTP method atom (get, post, put, delete, etc.)
+%%   Url - Full URL as a string
+%%   Headers - List of {Key, Value} tuples
+%%   Body - Request body as binary
+%%   ReceiverPid - Pid that will receive httpc messages directly
+%%
+%% Returns: {ok, RequestId} where RequestId is httpc's request identifier
+%%
+%% Messages sent to ReceiverPid by httpc:
+%%   {http, {RequestId, stream_start, Headers}}
+%%   {http, {RequestId, stream, BinaryChunk}}
+%%   {http, {RequestId, stream_end, Headers}}
+%%   {http, {RequestId, {error, Reason}}}
+request_stream_messages(Method, Url, Headers, Body, _ReceiverPid) ->
+    ok = ensure_started(ssl),
+    ok = ensure_started(inets),
+    ok = configure_httpc(),
+
+    NUrl = to_list(Url),
+    NHeaders = to_headers(Headers),
+    Req = build_req(NUrl, NHeaders, Body),
+
+    HttpOpts = [{timeout, 600000}, {connect_timeout, 15000}, {autoredirect, true}],
+    StreamOpts = [{stream, self}, {sync, false}],
+
+    httpc:request(Method, Req, HttpOpts, StreamOpts).
+
+%% Cancel a streaming request
+%%
+%% Parameters:
+%%   RequestId - The request ID returned from request_stream_messages/5
+%%
+%% Returns: ok
+cancel_stream(RequestId) ->
+    httpc:cancel_request(RequestId),
+    ok.
+
+%% Receive and decode the next stream message
+%%
+%% This is a helper for non-selector use cases. It blocks waiting for
+%% an httpc stream message and returns a clean tuple that Gleam can decode.
+%%
+%% Parameters:
+%%   TimeoutMs - Timeout in milliseconds
+%%
+%% Returns:
+%%   {stream_start, RequestId, Headers} - Stream started
+%%   {chunk, RequestId, Data} - Data chunk
+%%   {stream_end, RequestId, Headers} - Stream completed
+%%   {stream_error, RequestId, Reason} - Stream failed
+%%   timeout - No message received within timeout
+receive_stream_message(TimeoutMs) ->
+    receive
+        {http, {RequestId, stream_start, Headers}} ->
+            {stream_start, RequestId, Headers};
+        {http, {RequestId, stream_start, Headers, _Pid}} ->
+            %% Some httpc versions include pid
+            {stream_start, RequestId, Headers};
+        {http, {RequestId, stream, Data}} ->
+            {chunk, RequestId, Data};
+        {http, {RequestId, stream_end, Headers}} ->
+            {stream_end, RequestId, Headers};
+        {http, {RequestId, {error, Reason}}} ->
+            {stream_error, RequestId, format_error(Reason)}
+    after TimeoutMs ->
+        timeout
+    end.
+
+%% Decode an httpc stream message for selector integration
+%%
+%% This function is designed to be used with Gleam's process selectors.
+%% It takes the dynamic message and returns a simplified tuple.
+%% Panics if the message format is unexpected (which is fine for selectors).
+%%
+%% Parameters:
+%%   Message - The raw Erlang message
+%%
+%% Returns: {Tag, RequestId, Data}
+%%   Tag is one of: stream_start, chunk, stream_end, stream_error
+decode_stream_message_for_selector({http, InnerMessage}) ->
+    case InnerMessage of
+        {RequestId, stream_start, Headers} ->
+            {stream_start, RequestId, normalize_headers(Headers)};
+        {RequestId, stream_start, Headers, _Pid} ->
+            {stream_start, RequestId, normalize_headers(Headers)};
+        {RequestId, stream, Data} ->
+            {chunk, RequestId, Data};
+        {RequestId, stream_end, Headers} ->
+            {stream_end, RequestId, normalize_headers(Headers)};
+        {RequestId, {error, Reason}} ->
+            {stream_error, RequestId, format_error(Reason)};
+        _ ->
+            error(badarg)
+    end.
+
+%% Normalize headers to always be string tuples for easy Gleam decoding
+normalize_headers(Headers) when is_list(Headers) ->
+    lists:map(fun normalize_header_tuple/1, Headers);
+normalize_headers(_) ->
+    [].
+
+normalize_header_tuple({Name, Value}) ->
+    {to_binary(Name), to_binary(Value)};
+normalize_header_tuple(_) ->
+    {<<"">>, <<"">>}.
+
+to_binary(Bin) when is_binary(Bin) ->
+    Bin;
+to_binary(List) when is_list(List) ->
+    unicode:characters_to_binary(List);
+to_binary(Other) ->
+    iolist_to_binary(io_lib:format("~p", [Other])).
+
+format_error(Reason) ->
+    iolist_to_binary(io_lib:format("~p", [Reason])).

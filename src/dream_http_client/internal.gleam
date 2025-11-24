@@ -119,7 +119,7 @@ pub fn receive_next(owner: d.Dynamic) -> Result(BitArray, Nil) {
   let resp = fetch_next(owner)
   let tag =
     d.run(resp, d.at([0], d.dynamic))
-    |> result.try(fn(dyn) { Ok(atom.cast_from_dynamic(dyn)) })
+    |> result.try(convert_to_atom)
     |> result.unwrap(atom.create(""))
     |> atom.to_string
   case tag {
@@ -131,3 +131,71 @@ pub fn receive_next(owner: d.Dynamic) -> Result(BitArray, Nil) {
     _ -> Error(Nil)
   }
 }
+
+fn convert_to_atom(dyn: d.Dynamic) -> Result(atom.Atom, e) {
+  Ok(atom.cast_from_dynamic(dyn))
+}
+
+// ============================================================================
+// Message-Based Streaming FFI
+// ============================================================================
+
+/// Start a message-based streaming HTTP request
+///
+/// This is a thin FFI wrapper that calls httpc directly. Messages are sent
+/// to the caller's process mailbox. No owner process, no buffering.
+///
+/// ## Parameters
+///
+/// - `req`: The HTTP request to send
+///
+/// ## Returns
+///
+/// A dynamic value containing `{ok, RequestId}` or `{error, Reason}`.
+@external(erlang, "dream_httpc_shim", "request_stream_messages")
+pub fn start_stream_messages(
+  method: atom.Atom,
+  url: String,
+  headers: List(#(String, String)),
+  body: BitArray,
+  receiver: process.Pid,
+) -> d.Dynamic
+
+/// Cancel a streaming request
+///
+/// Cancels an active streaming HTTP request.
+///
+/// ## Parameters
+///
+/// - `request_id`: The httpc request ID as a dynamic value
+@external(erlang, "dream_httpc_shim", "cancel_stream")
+pub fn cancel_stream_internal(request_id: d.Dynamic) -> Nil
+
+/// Receive the next stream message with timeout
+///
+/// Blocks waiting for an httpc stream message and returns a clean tuple.
+/// This is for non-selector use cases.
+///
+/// ## Parameters
+///
+/// - `timeout_ms`: Timeout in milliseconds
+///
+/// ## Returns
+///
+/// A dynamic value that should be decoded into a stream message tuple
+@external(erlang, "dream_httpc_shim", "receive_stream_message")
+pub fn receive_stream_message(timeout_ms: Int) -> d.Dynamic
+
+/// Decode stream message for selector integration
+///
+/// Used internally by the selector integration. Panics on invalid messages.
+///
+/// ## Parameters
+///
+/// - `message`: The raw message payload from the selector
+///
+/// ## Returns
+///
+/// A simplified tuple that Gleam can decode
+@external(erlang, "dream_httpc_shim", "decode_stream_message_for_selector")
+pub fn decode_stream_message_for_selector(message: d.Dynamic) -> d.Dynamic
