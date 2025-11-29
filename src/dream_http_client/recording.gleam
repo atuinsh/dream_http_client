@@ -6,6 +6,7 @@
 import gleam/bit_array
 import gleam/dynamic/decode
 import gleam/http
+import gleam/io
 import gleam/json
 import gleam/list
 import gleam/option
@@ -122,11 +123,14 @@ fn encode_chunk(chunk: Chunk) -> json.Json {
   // For binary data, we'd need base64, but BitArray doesn't have that
   // For now, convert to string and handle encoding errors gracefully
   let data_str = case bit_array.to_string(chunk.data) {
-    Ok(s) -> s
-    Error(_utf8_decode_error) -> {
-      // If conversion fails, use a placeholder
-      // In practice, streaming chunks are usually text
-      // Named error to show intentional handling
+    Ok(string_value) -> string_value
+    Error(utf8_decode_error) -> {
+      // If conversion fails, log the decode error and use a placeholder. In
+      // practice, streaming chunks are usually text, so this is rare.
+      io.println_error(
+        "Failed to encode recording chunk as UTF-8 string: "
+        <> string.inspect(utf8_decode_error),
+      )
       ""
     }
   }
@@ -209,7 +213,15 @@ fn format_json_error(error: json.DecodeError) -> String {
 fn format_decode_errors(errors: List(decode.DecodeError)) -> String {
   case list.first(errors) {
     Ok(error) -> format_single_decode_error(error)
-    Error(_empty_list) -> "Decode error with no details"
+    Error(empty_list_error) -> {
+      // We did not get any concrete decode errors back; log that situation so
+      // it is visible when troubleshooting.
+      io.println_error(
+        "Decode error with no details in recording file: "
+        <> string.inspect(empty_list_error),
+      )
+      "Decode error with no details"
+    }
   }
 }
 
@@ -242,8 +254,15 @@ fn decode_recorded_request_decoder() -> decode.Decoder(RecordedRequest) {
   // Method: Use Other() for unknown methods (preserves original value)
   // Scheme: Fail on unknown schemes (only http/https are valid)
   let method = case parse_method_string(method_str) {
-    Ok(m) -> m
-    Error(_) -> http.Other(method_str)
+    Ok(parsed_method) -> parsed_method
+    Error(parse_error) -> {
+      // Preserve the original method string but log the parse error so it is
+      // not silently discarded.
+      io.println_error(
+        "Failed to parse HTTP method in recording: " <> parse_error,
+      )
+      http.Other(method_str)
+    }
   }
 
   case parse_scheme_string(scheme_str) {
@@ -258,9 +277,12 @@ fn decode_recorded_request_decoder() -> decode.Decoder(RecordedRequest) {
         headers: headers,
         body: body,
       ))
-    Error(_) -> {
-      // Invalid scheme in recording - use default http scheme
-      // The decode error will show the found value
+    Error(parse_error) -> {
+      // Invalid scheme in recording - fall back to http and log the error so
+      // it is visible when inspecting corrupted recording files.
+      io.println_error(
+        "Unknown scheme in recording; defaulting to http: " <> parse_error,
+      )
       decode.success(RecordedRequest(
         method: method,
         scheme: http.Http,
@@ -320,10 +342,16 @@ fn decode_chunk_decoder() -> decode.Decoder(Chunk) {
 
 fn decode_header_pair_decoder() -> decode.Decoder(#(String, String)) {
   decode.at([0], decode.string)
-  |> decode.then(fn(name) {
-    decode.at([1], decode.string)
-    |> decode.map(fn(value) { #(name, value) })
-  })
+  |> decode.then(build_header_value_decoder)
+}
+
+fn build_header_value_decoder(name: String) -> decode.Decoder(#(String, String)) {
+  decode.at([1], decode.string)
+  |> decode.map(build_header_pair(name))
+}
+
+fn build_header_pair(name: String) -> fn(String) -> #(String, String) {
+  fn(value) { #(name, value) }
 }
 
 fn parse_method_string(method_str: String) -> Result(http.Method, String) {

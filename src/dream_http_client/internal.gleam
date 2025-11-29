@@ -70,28 +70,31 @@ pub fn atomize_method(method: http.Method) -> atom.Atom {
 ///
 /// ## Parameters
 ///
-/// - `req`: The HTTP request to send
+/// - `request`: The HTTP request to send
 /// - `timeout_ms`: Timeout in milliseconds for the request
 ///
 /// ## Returns
 ///
 /// A dynamic value containing the owner PID in the format `{ok, OwnerPid}`.
 /// Use `extract_owner_pid()` to get the PID for receiving chunks.
-pub fn start_httpc_stream(req: Request(String), timeout_ms: Int) -> d.Dynamic {
-  let port_string = case req.port {
-    option.Some(p) -> ":" <> int.to_string(p)
+pub fn start_httpc_stream(
+  request: Request(String),
+  timeout_ms: Int,
+) -> d.Dynamic {
+  let port_string = case request.port {
+    option.Some(port) -> ":" <> int.to_string(port)
     option.None -> ""
   }
   let url =
-    http.scheme_to_string(req.scheme)
+    http.scheme_to_string(request.scheme)
     <> "://"
-    <> req.host
+    <> request.host
     <> port_string
-    <> req.path
-  let method_atom = atomize_method(req.method)
-  let body = <<req.body:utf8>>
-  let me = process.self()
-  request_stream(method_atom, url, req.headers, body, me, timeout_ms)
+    <> request.path
+  let method_atom = atomize_method(request.method)
+  let body = <<request.body:utf8>>
+  let receiver = process.self()
+  request_stream(method_atom, url, request.headers, body, receiver, timeout_ms)
 }
 
 /// Extract the owner PID from the request result

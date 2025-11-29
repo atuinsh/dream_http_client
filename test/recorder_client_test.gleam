@@ -523,7 +523,7 @@ fn receive_all_stream_messages_via_selector(
     Ok(client.DecodeError(_reason)) -> {
       list.reverse(acc)
     }
-    Error(_timeout) -> {
+    Error(Nil) -> {
       list.reverse(acc)
     }
   }
