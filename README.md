@@ -8,9 +8,6 @@
   <a href="https://hex.pm/packages/dream_http_client">
     <img src="https://img.shields.io/hexpm/v/dream_http_client" alt="Hex Package">
   </a>
-  <a href="https://github.com/TrustBound/dream/releases">
-    <img src="https://img.shields.io/github/v/release/TrustBound/dream?label=Release" alt="Latest Release">
-  </a>
   <a href="https://hexdocs.pm/dream_http_client">
     <img src="https://img.shields.io/badge/hex-docs-lightgreen.svg" alt="HexDocs">
   </a>
