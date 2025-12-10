@@ -127,7 +127,7 @@ pub fn send_with_no_recorder_makes_real_request_test() {
 
 pub fn send_with_recorder_in_record_mode_records_response_test() {
   // Arrange
-  let directory = test_recording_directory()
+  let directory = "test/fixtures/recordings/record_mode_test"
   let mode = recorder.Record(directory: directory)
   let matching = matching.match_url_only()
   let assert Ok(rec) = recorder.start(mode, matching)
