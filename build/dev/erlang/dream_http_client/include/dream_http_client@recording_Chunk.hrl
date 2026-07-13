@@ -1,0 +1,1 @@
+-record(chunk, {data :: bitstring(), delay_ms :: integer()}).

@@ -361,7 +361,10 @@ pub fn scheme(
 /// client.new
 /// |> client.host("api.example.com")
 /// ```
-pub fn host(client_request: ClientRequest, host_value: String) -> ClientRequest {
+pub fn host(
+  client_request: ClientRequest,
+  host_value: String,
+) -> ClientRequest {
   ClientRequest(..client_request, host: host_value)
 }
 
@@ -413,7 +416,10 @@ pub fn port(client_request: ClientRequest, port_value: Int) -> ClientRequest {
 /// client.new
 /// |> client.path("/api/users/123")
 /// ```
-pub fn path(client_request: ClientRequest, path_value: String) -> ClientRequest {
+pub fn path(
+  client_request: ClientRequest,
+  path_value: String,
+) -> ClientRequest {
   ClientRequest(..client_request, path: path_value)
 }
 
@@ -507,7 +513,10 @@ pub fn headers(
 /// |> client.method(http.Post)
 /// |> client.body(json.to_string(json_body))
 /// ```
-pub fn body(client_request: ClientRequest, body_value: String) -> ClientRequest {
+pub fn body(
+  client_request: ClientRequest,
+  body_value: String,
+) -> ClientRequest {
   ClientRequest(..client_request, body: body_value)
 }
 
@@ -565,7 +574,10 @@ pub fn recorder(
 /// |> host("slow-api.example.com")
 /// |> timeout(60_000)  // 60 second timeout
 /// ```
-pub fn timeout(client_request: ClientRequest, timeout_ms: Int) -> ClientRequest {
+pub fn timeout(
+  client_request: ClientRequest,
+  timeout_ms: Int,
+) -> ClientRequest {
   ClientRequest(..client_request, timeout: option.Some(timeout_ms))
 }
 
@@ -896,7 +908,9 @@ pub fn get_timeout(client_request: ClientRequest) -> Option(Int) {
 /// let recorder_opt = client.get_recorder(req)
 /// // recorder_opt == Some(rec)
 /// ```
-pub fn get_recorder(client_request: ClientRequest) -> Option(recorder.Recorder) {
+pub fn get_recorder(
+  client_request: ClientRequest,
+) -> Option(recorder.Recorder) {
   client_request.recorder
 }
 
@@ -1216,6 +1230,113 @@ fn send_sync(
   body: BitArray,
   timeout_ms: Int,
 ) -> Result(BitArray, String)
+
+/// Send an HTTP request and return the response status and body
+///
+/// Like `send`, but preserves the response status code instead of
+/// discarding it. Recorder-aware: a recorded blocking response replays
+/// with its stored status, and record mode stores the actual status
+/// (unlike `send`'s recordings, which assume 200).
+pub fn send_with_status(
+  client_request: ClientRequest,
+) -> Result(#(Int, String), String) {
+  case client_request.recorder {
+    option.Some(recorder_instance) ->
+      send_with_status_recorder(client_request, recorder_instance)
+    option.None -> send_with_status_to_httpc(client_request)
+  }
+}
+
+fn send_with_status_recorder(
+  client_request: ClientRequest,
+  recorder_instance: recorder.Recorder,
+) -> Result(#(Int, String), String) {
+  let recorded_request = client_request_to_recorded_request(client_request)
+
+  case recorder.find_recording(recorder_instance, recorded_request) {
+    option.Some(recording.Recording(
+      _,
+      recording.BlockingResponse(status, _, body),
+    )) -> Ok(#(status, body))
+    option.Some(recording.Recording(_, recording.StreamingResponse(_, _, _))) ->
+      Error(
+        "Recording contains streaming response, use stream_yielder() instead",
+      )
+    option.None ->
+      case send_with_status_to_httpc(client_request) {
+        Ok(#(status, body)) -> {
+          record_status_response_if_needed(
+            recorder_instance,
+            recorded_request,
+            status,
+            body,
+          )
+          Ok(#(status, body))
+        }
+        Error(error_message) -> Error(error_message)
+      }
+  }
+}
+
+fn record_status_response_if_needed(
+  recorder_instance: recorder.Recorder,
+  recorded_request: recording.RecordedRequest,
+  status: Int,
+  body: String,
+) -> Nil {
+  case recorder.is_record_mode(recorder_instance) {
+    True ->
+      recorder.add_recording(
+        recorder_instance,
+        recording.Recording(
+          request: recorded_request,
+          response: recording.BlockingResponse(
+            status: status,
+            headers: [],
+            body: body,
+          ),
+        ),
+      )
+    False -> Nil
+  }
+}
+
+fn send_with_status_to_httpc(
+  client_request: ClientRequest,
+) -> Result(#(Int, String), String) {
+  let http_request = to_http_request(client_request)
+  let url = build_url(http_request)
+  let method_atom = internal.atomize_method(http_request.method)
+  let method_dynamic = atom.to_dynamic(method_atom)
+  let body = <<http_request.body:utf8>>
+  let timeout_value = resolve_timeout(client_request)
+
+  case
+    send_sync_response(
+      method_dynamic,
+      url,
+      http_request.headers,
+      body,
+      timeout_value,
+    )
+  {
+    Ok(#(status, response_body)) ->
+      response_body
+      |> bit_array.to_string
+      |> result.map_error(convert_string_error)
+      |> result.map(fn(text) { #(status, text) })
+    Error(error_message) -> Error(error_message)
+  }
+}
+
+@external(erlang, "dream_httpc_shim", "request_sync_response")
+fn send_sync_response(
+  method: d.Dynamic,
+  url: String,
+  headers: List(#(String, String)),
+  body: BitArray,
+  timeout_ms: Int,
+) -> Result(#(Int, BitArray), String)
 
 /// Stream HTTP response chunks using a yielder
 ///

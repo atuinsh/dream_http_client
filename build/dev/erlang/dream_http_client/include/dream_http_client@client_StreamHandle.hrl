@@ -1,0 +1,1 @@
+-record(stream_handle, {pid :: gleam@erlang@process:pid_()}).
