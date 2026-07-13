@@ -2,10 +2,9 @@ name = "dream_http_client"
 version = "3.0.1"
 description = "Type-safe HTTP client for Gleam with streaming support"
 licences = ["MIT"]
-repository = { type = "github", user = "TrustBound", repo = "dream" }
+repository = { type = "github", user = "atuinsh", repo = "dream_http_client" }
 links = [
-    { title = "Documentation", href = "https://hexdocs.pm/dream_http_client" },
-    { title = "GitHub", href = "https://github.com/TrustBound/dream" },
+    { title = "Upstream", href = "https://github.com/TrustBound/dream" },
 ]
 
 [dependencies]
@@ -18,8 +17,10 @@ simplifile = ">= 2.0.0 and < 3.0.0"
 gleam_otp = ">= 1.2.0 and < 2.0.0"
 gleam_crypto = ">= 1.5.1 and < 2.0.0"
 
+# The upstream test suite's dev-dependencies (dream, dream_mock_server,
+# mockth) live in the monorepo this package was extracted from, so the
+# tests do not run here; the consuming applications exercise the client
+# end-to-end. gleeunit is kept so `gleam test` failures are compile
+# errors rather than resolution errors.
 [dev-dependencies]
-dream = { path = "../.." }
-dream_mock_server = { path = "../mock_server" }
 gleeunit = ">= 1.0.0 and < 2.0.0"
-mockth = { git = "https://github.com/bondiano/mockth.git", ref = "master" }
