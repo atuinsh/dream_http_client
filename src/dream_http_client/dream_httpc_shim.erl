@@ -140,7 +140,16 @@ stream_owner_wait(RequestId, Buffer) ->
         {http, {RequestId, stream_end, Headers}} ->
             stream_owner_wait(RequestId, Buffer ++ [{finished, Headers}]);
         {http, {RequestId, {error, Reason}}} ->
-            stream_owner_wait(RequestId, Buffer ++ [{error, Reason}]);
+            %% Format here (not at delivery) so the Gleam side always
+            %% receives a binary; raw terms like {failed_connect, ...}
+            %% failed its string decode and decayed to "Unknown stream
+            %% error".
+            stream_owner_wait(RequestId, Buffer ++ [{error, format_error(Reason)}]);
+        {http, {RequestId, {{_, _, _} = StatusLine, RespHeaders, RespBody}}} ->
+            stream_owner_wait(
+                RequestId,
+                Buffer ++ full_response_messages(StatusLine, RespHeaders, RespBody)
+            );
         _Other ->
             stream_owner_wait(RequestId, Buffer)
     end.
@@ -206,9 +215,66 @@ stream_owner_next_message(RequestId) ->
         {http, {RequestId, stream_end, Headers}} ->
             {finished, Headers};
         {http, {RequestId, {error, Reason}}} ->
-            {error, Reason};
+            {error, format_error(Reason)};
+        {http, {RequestId, {{_, _, _} = StatusLine, RespHeaders, RespBody}}} ->
+            case full_response_messages(StatusLine, RespHeaders, RespBody) of
+                [Single] ->
+                    Single;
+                [First | Rest] ->
+                    %% More than one synthesized message but this function
+                    %% returns exactly one: re-inject the remainder as
+                    %% httpc-shaped messages for the next receive.
+                    [self() ! resynthesize(RequestId, Msg) || Msg <- Rest],
+                    First
+            end;
         _Other ->
             stream_owner_next_message(RequestId)
+    end.
+
+resynthesize(RequestId, {chunk, Bin}) ->
+    {http, {RequestId, stream, Bin}};
+resynthesize(RequestId, {finished, Headers}) ->
+    {http, {RequestId, stream_end, Headers}};
+resynthesize(RequestId, {error, Reason}) ->
+    {http, {RequestId, {error, Reason}}}.
+
+%% httpc with {stream, self} only streams 200/206 bodies; any other
+%% response arrives whole as {http, {RequestId, {StatusLine, Headers,
+%% Body}}}. The receive loops previously dropped that tuple in their
+%% catch-all clauses, hanging the stream until the caller's timeout.
+%% Convert it to equivalent stream messages: a whole 2xx becomes body +
+%% end, anything else a descriptive error.
+full_response_messages({_Version, Status, _Phrase}, RespHeaders, RespBody)
+  when Status >= 200, Status < 300 ->
+    [{chunk, ensure_binary(RespBody)}, {finished, RespHeaders}];
+full_response_messages(StatusLine, _RespHeaders, RespBody) ->
+    [{error, http_status_error(StatusLine, RespBody)}].
+
+http_status_error({_Version, Status, Phrase}, RespBody) ->
+    iolist_to_binary(
+        io_lib:format("HTTP ~b ~ts: ~ts",
+                      [Status, ensure_binary(Phrase), body_snippet(RespBody)])
+    ).
+
+%% Full-response bodies arrive as charlists (streaming mode sets no
+%% {body_format, binary}); streamed chunks are already binaries.
+ensure_binary(Bin) when is_binary(Bin) ->
+    Bin;
+ensure_binary(Chars) when is_list(Chars) ->
+    case unicode:characters_to_binary(Chars) of
+        Bin when is_binary(Bin) -> Bin;
+        _ -> iolist_to_binary(io_lib:format("~p", [Chars]))
+    end;
+ensure_binary(Other) ->
+    iolist_to_binary(io_lib:format("~p", [Other])).
+
+body_snippet(RespBody) ->
+    Bin = ensure_binary(RespBody),
+    try string:length(Bin) =< 500 of
+        true -> Bin;
+        false -> [string:slice(Bin, 0, 500), <<"..."/utf8>>]
+    catch
+        _:_ -> <<"(unreadable body)"/utf8>>
     end.
 
 %% Ensure an Erlang application is started
@@ -438,7 +504,11 @@ receive_stream_message(TimeoutMs) ->
         {http, {RequestId, stream_end, Headers}} ->
             {stream_end, RequestId, normalize_headers(Headers)};
         {http, {RequestId, {error, Reason}}} ->
-            {stream_error, RequestId, format_error(Reason)}
+            {stream_error, RequestId, format_error(Reason)};
+        {http, {RequestId, {{_, _, _} = StatusLine, _RespHeaders, RespBody}}} ->
+            %% A whole (non-streamed) response on the message path is
+            %% always delivered as an error: 200/206 would have streamed.
+            {stream_error, RequestId, http_status_error(StatusLine, RespBody)}
     after TimeoutMs ->
         timeout
     end.
@@ -507,6 +577,12 @@ decode_stream_message_for_selector({http, InnerMessage}) ->
             %% Stream errored - clean up ref mapping
             remove_ref_mapping(StringId),
             {stream_error, StringId, format_error(Reason)};
+        {HttpcRef, {{_, _, _} = StatusLine, _RespHeaders, RespBody}} ->
+            %% A whole (non-streamed) response: 200/206 would have
+            %% streamed, so surface it as an error with the status.
+            StringId = get_or_create_string_id(HttpcRef),
+            remove_ref_mapping(StringId),
+            {stream_error, StringId, http_status_error(StatusLine, RespBody)};
         _ ->
             error(badarg)
     end.
@@ -625,6 +701,9 @@ request_sync(Method, Url, Headers, Body, TimeoutMs) ->
             {error, format_error(Reason)}
     end.
 
+format_error(Reason) when is_binary(Reason) ->
+    %% Already a formatted message (e.g. a re-injected synthesized error).
+    Reason;
 format_error(Reason) ->
     iolist_to_binary(io_lib:format("~p", [Reason])).
 
