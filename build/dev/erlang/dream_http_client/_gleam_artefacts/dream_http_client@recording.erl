@@ -306,7 +306,7 @@ decode_streaming_response_decoder(Status, Headers) ->
         end
     ).
 
--file("src/dream_http_client/recording.gleam", 539).
+-file("src/dream_http_client/recording.gleam", 541).
 -spec build_header_pair(binary()) -> fun((binary()) -> {binary(), binary()}).
 build_header_pair(Name) ->
     fun(Value) -> {Name, Value} end.
@@ -370,7 +370,7 @@ decode_recorded_response_decoder() ->
         end
     ).
 
--file("src/dream_http_client/recording.gleam", 558).
+-file("src/dream_http_client/recording.gleam", 560).
 -spec parse_scheme_string(binary()) -> {ok, gleam@http:scheme()} |
     {error, binary()}.
 parse_scheme_string(Scheme_str) ->
@@ -385,7 +385,7 @@ parse_scheme_string(Scheme_str) ->
             {error, <<"Unknown scheme: "/utf8, Scheme_str/binary>>}
     end.
 
--file("src/dream_http_client/recording.gleam", 543).
+-file("src/dream_http_client/recording.gleam", 545).
 -spec parse_method_string(binary()) -> {ok, gleam@http:method()} |
     {error, binary()}.
 parse_method_string(Method_str) ->

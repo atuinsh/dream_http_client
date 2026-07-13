@@ -10,13 +10,10 @@
                     gleeunit,
                     simplifile]},
     {description, "Type-safe HTTP client for Gleam with streaming support"},
-    {modules, [dream_http_client@@main,
-               dream_http_client@client,
-               dream_http_client@internal,
+    {modules, [dream_http_client@client,
                dream_http_client@matching,
                dream_http_client@recorder,
                dream_http_client@recording,
-               dream_http_client@storage,
-               dream_httpc_shim]},
+               dream_http_client@storage]},
     {registered, []}
 ]}.
