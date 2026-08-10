@@ -1,783 +1,190 @@
 -module(simplifile).
--compile([no_auto_import, nowarn_unused_vars, nowarn_unused_function, nowarn_nomatch, inline]).
--define(FILEPATH, "src/simplifile.gleam").
--export([describe_error/1, file_info_permissions_octal/1, file_info_type/1, file_info/1, link_info/1, delete/1, delete_all/1, read_bits/1, read/1, write_bits/2, write/2, append_bits/2, append/2, is_directory/1, create_directory/1, create_symlink/2, create_link/2, read_directory/1, is_file/1, is_symlink/1, create_file/1, create_directory_all/1, copy_file/2, rename_file/2, rename/2, copy_directory/2, copy/2, rename_directory/2, clear_directory/1, get_files/1, file_permissions_to_octal/1, file_info_permissions/1, set_permissions_octal/2, set_permissions/2, current_directory/0]).
+-compile([no_auto_import, nowarn_ignored, nowarn_unused_vars, nowarn_unused_function, nowarn_nomatch, inline]).
+-export([describe_error/1, file_info_permissions_octal/1, file_info_permissions/1, file_info_type/1, file_info/1, link_info/1, read_bits/1, read/1, write_bits/2, write/2, delete/1, delete_file/1, delete_all/1, append_bits/2, append/2, is_directory/1, create_directory/1, create_symlink/2, create_link/2, read_directory/1, is_file/1, is_symlink/1, exists/2, create_file/1, create_directory_all/1, copy_directory/2, copy_file/2, copy/2, rename_file/2, rename/2, rename_directory/2, clear_directory/1, get_files/1, file_permissions_to_octal/1, set_permissions_octal/2, set_permissions/2, current_directory/0, resolve/1, touch/1]).
 -export_type([file_error/0, file_info/0, file_type/0, permission/0, file_permissions/0]).
 
--if(?OTP_RELEASE >= 27).
--define(MODULEDOC(Str), -moduledoc(Str)).
--define(DOC(Str), -doc(Str)).
--else.
--define(MODULEDOC(Str), -compile([])).
--define(DOC(Str), -compile([])).
--endif.
+-type file_error() :: eacces | eagain | ebadf | ebadmsg | ebusy | edeadlk | edeadlock | edquot | eexist | efault | efbig | eftype | eintr | einval | eio | eisdir | eloop | emfile | emlink | emultihop | enametoolong | enfile | enobufs | enodev | enolck | enolink | enoent | enomem | enospc | enosr | enostr | enosys | enotblk | enotdir | enotsup | enxio | eopnotsupp | eoverflow | eperm | epipe | erange | erofs | espipe | esrch | estale | etxtbsy | exdev | not_utf8 | {unknown, binary()}.
 
--type file_error() :: eacces |
-    eagain |
-    ebadf |
-    ebadmsg |
-    ebusy |
-    edeadlk |
-    edeadlock |
-    edquot |
-    eexist |
-    efault |
-    efbig |
-    eftype |
-    eintr |
-    einval |
-    eio |
-    eisdir |
-    eloop |
-    emfile |
-    emlink |
-    emultihop |
-    enametoolong |
-    enfile |
-    enobufs |
-    enodev |
-    enolck |
-    enolink |
-    enoent |
-    enomem |
-    enospc |
-    enosr |
-    enostr |
-    enosys |
-    enotblk |
-    enotdir |
-    enotsup |
-    enxio |
-    eopnotsupp |
-    eoverflow |
-    eperm |
-    epipe |
-    erange |
-    erofs |
-    espipe |
-    esrch |
-    estale |
-    etxtbsy |
-    exdev |
-    not_utf8 |
-    {unknown, binary()}.
-
--type file_info() :: {file_info,
-        integer(),
-        integer(),
-        integer(),
-        integer(),
-        integer(),
-        integer(),
-        integer(),
-        integer(),
-        integer(),
-        integer()}.
+-type file_info() :: {file_info, integer(), integer(), integer(), integer(), integer(), integer(), integer(), integer(), integer(), integer()}.
 
 -type file_type() :: file | directory | symlink | other.
 
 -type permission() :: read | write | execute.
 
--type file_permissions() :: {file_permissions,
-        gleam@set:set(permission()),
-        gleam@set:set(permission()),
-        gleam@set:set(permission())}.
+-type file_permissions() :: {file_permissions, gleam@set:set(permission()), gleam@set:set(permission()), gleam@set:set(permission())}.
 
 -file("src/simplifile.gleam", 124).
-?DOC(
-    " Convert an error into a human-readable description\n"
-    " ## Example\n"
-    " ```gleam\n"
-    " let assert \"Input/output error\" = describe_error(Eio)\n"
-    " ```\n"
-).
 -spec describe_error(file_error()) -> binary().
+-doc(~" Convert an error into a human-readable description
+ ## Example
+ ```gleam
+ let assert \"Input/output error\" = describe_error(Eio)
+ ```
+").
 describe_error(Error) ->
     case Error of
         eperm ->
-            <<"Operation not permitted"/utf8>>;
+            ~"Operation not permitted";
 
         enoent ->
-            <<"No such file or directory"/utf8>>;
+            ~"No such file or directory";
 
         esrch ->
-            <<"No such process"/utf8>>;
+            ~"No such process";
 
         eintr ->
-            <<"Interrupted system call"/utf8>>;
+            ~"Interrupted system call";
 
         eio ->
-            <<"Input/output error"/utf8>>;
+            ~"Input/output error";
 
         enxio ->
-            <<"Device not configured"/utf8>>;
+            ~"Device not configured";
 
         ebadf ->
-            <<"Bad file descriptor"/utf8>>;
+            ~"Bad file descriptor";
 
         edeadlk ->
-            <<"Resource deadlock avoided"/utf8>>;
+            ~"Resource deadlock avoided";
 
         edeadlock ->
-            <<"Resource deadlock avoided"/utf8>>;
+            ~"Resource deadlock avoided";
 
         enomem ->
-            <<"Cannot allocate memory"/utf8>>;
+            ~"Cannot allocate memory";
 
         eacces ->
-            <<"Permission denied"/utf8>>;
+            ~"Permission denied";
 
         efault ->
-            <<"Bad address"/utf8>>;
+            ~"Bad address";
 
         enotblk ->
-            <<"Block device required"/utf8>>;
+            ~"Block device required";
 
         ebusy ->
-            <<"Resource busy"/utf8>>;
+            ~"Resource busy";
 
         eexist ->
-            <<"File exists"/utf8>>;
+            ~"File exists";
 
         exdev ->
-            <<"Cross-device link"/utf8>>;
+            ~"Cross-device link";
 
         enodev ->
-            <<"Operation not supported by device"/utf8>>;
+            ~"Operation not supported by device";
 
         enotdir ->
-            <<"Not a directory"/utf8>>;
+            ~"Not a directory";
 
         eisdir ->
-            <<"Is a directory"/utf8>>;
+            ~"Is a directory";
 
         einval ->
-            <<"Invalid argument"/utf8>>;
+            ~"Invalid argument";
 
         enfile ->
-            <<"Too many open files in system"/utf8>>;
+            ~"Too many open files in system";
 
         emfile ->
-            <<"Too many open files"/utf8>>;
+            ~"Too many open files";
 
         etxtbsy ->
-            <<"Text file busy"/utf8>>;
+            ~"Text file busy";
 
         efbig ->
-            <<"File too large"/utf8>>;
+            ~"File too large";
 
         enospc ->
-            <<"No space left on device"/utf8>>;
+            ~"No space left on device";
 
         espipe ->
-            <<"Illegal seek"/utf8>>;
+            ~"Illegal seek";
 
         erofs ->
-            <<"Read-only file system"/utf8>>;
+            ~"Read-only file system";
 
         emlink ->
-            <<"Too many links"/utf8>>;
+            ~"Too many links";
 
         epipe ->
-            <<"Broken pipe"/utf8>>;
+            ~"Broken pipe";
 
         erange ->
-            <<"Result too large"/utf8>>;
+            ~"Result too large";
 
         eagain ->
-            <<"Resource temporarily unavailable"/utf8>>;
+            ~"Resource temporarily unavailable";
 
         enotsup ->
-            <<"Operation not supported"/utf8>>;
+            ~"Operation not supported";
 
         enobufs ->
-            <<"No buffer space available"/utf8>>;
+            ~"No buffer space available";
 
         eloop ->
-            <<"Too many levels of symbolic links"/utf8>>;
+            ~"Too many levels of symbolic links";
 
         enametoolong ->
-            <<"File name too long"/utf8>>;
+            ~"File name too long";
 
         edquot ->
-            <<"Disc quota exceeded"/utf8>>;
+            ~"Disc quota exceeded";
 
         estale ->
-            <<"Stale NFS file handle"/utf8>>;
+            ~"Stale NFS file handle";
 
         enolck ->
-            <<"No locks available"/utf8>>;
+            ~"No locks available";
 
         enosys ->
-            <<"Function not implemented"/utf8>>;
+            ~"Function not implemented";
 
         eftype ->
-            <<"Inappropriate file type or format"/utf8>>;
+            ~"Inappropriate file type or format";
 
         eoverflow ->
-            <<"Value too large to be stored in data type"/utf8>>;
+            ~"Value too large to be stored in data type";
 
         ebadmsg ->
-            <<"Bad message"/utf8>>;
+            ~"Bad message";
 
         emultihop ->
-            <<"Multihop attempted"/utf8>>;
+            ~"Multihop attempted";
 
         enolink ->
-            <<"Link has been severed"/utf8>>;
+            ~"Link has been severed";
 
         enosr ->
-            <<"No STREAM resources"/utf8>>;
+            ~"No STREAM resources";
 
         enostr ->
-            <<"Not a STREAM"/utf8>>;
+            ~"Not a STREAM";
 
         eopnotsupp ->
-            <<"Operation not supported on socket"/utf8>>;
+            ~"Operation not supported on socket";
 
         not_utf8 ->
-            <<"File not UTF-8 encoded"/utf8>>;
+            ~"File not UTF-8 encoded";
 
         {unknown, Inner} ->
             <<"Unknown error: "/utf8, Inner/binary>>
     end.
 
 -file("src/simplifile.gleam", 232).
-?DOC(
-    " Extract the file permissions from a given FileInfo value in their octal representation.\n"
-    "\n"
-    " ## Example\n"
-    " ```gleam\n"
-    " use info <- result.try(simplifile.file_info(\"src/app.gleam\"))\n"
-    " simplifile.file_info_permissions_octal(info)\n"
-    " // --> 0o644\n"
-    " ```\n"
-).
 -spec file_info_permissions_octal(file_info()) -> integer().
+-doc(~" Extract the file permissions from a given FileInfo value in their octal representation.
+
+ ## Example
+ ```gleam
+ use info <- result.try(simplifile.file_info(\"src/app.gleam\"))
+ simplifile.file_info_permissions_octal(info)
+ // --> 0o644
+ ```").
 file_info_permissions_octal(File_info) ->
-    erlang:'band'(erlang:element(3, File_info), 8#777).
+    erlang:'band'(erlang:element(3, File_info), 511).
 
--file("src/simplifile.gleam", 261).
-?DOC(
-    " Extract the file type from a given FileInfo value.\n"
-    "\n"
-    " ## Example\n"
-    " ```gleam\n"
-    " use info <- result.try(simplifile.file_info(\"src/app.gleam\"))\n"
-    " simplifile.file_info_type(info)\n"
-    " // --> simplifile.File\n"
-    " ```\n"
-).
--spec file_info_type(file_info()) -> file_type().
-file_info_type(File_info) ->
-    case erlang:'band'(erlang:element(3, File_info), 8#170000) of
-        8#100000 ->
-            file;
-
-        8#40000 ->
-            directory;
-
-        8#120000 ->
-            symlink;
-
-        _ ->
-            other
-    end.
-
--file("src/simplifile.gleam", 281).
-?DOC(
-    " Get information about a file at a given path\n"
-    "\n"
-    " When the given `filepath` points to a symlink, this function will follow\n"
-    " the symlink and return information about the target file.\n"
-    "\n"
-    " See `link_info` if you want to get information about a symlink instead.\n"
-).
--spec file_info(binary()) -> {ok, file_info()} | {error, file_error()}.
-file_info(Filepath) ->
-    simplifile_erl:file_info(Filepath).
-
--file("src/simplifile.gleam", 291).
-?DOC(
-    " Get information about a file at a given path\n"
-    "\n"
-    " When the given `filepath` is a symlink, this function will return\n"
-    " infromation about the symlink itself.\n"
-    "\n"
-    " See `file_info` if you want to follow symlinks instead.\n"
-).
--spec link_info(binary()) -> {ok, file_info()} | {error, file_error()}.
-link_info(Filepath) ->
-    simplifile_erl:link_info(Filepath).
-
--file("src/simplifile.gleam", 335).
-?DOC(
-    " Delete a file or directory at a given path. Performs a recursive\n"
-    " delete on a directory.\n"
-    " Throws an error if the path does not exist.\n"
-    " ## Example\n"
-    " ```gleam\n"
-    " let assert Ok(Nil) = delete(file_at: \"./delete_me.txt\")\n"
-    " ```\n"
-).
--spec delete(binary()) -> {ok, nil} | {error, file_error()}.
-delete(Path) ->
-    simplifile_erl:delete(Path).
-
--file("src/simplifile.gleam", 342).
-?DOC(
-    " Delete all files/directories specified in a list of paths.\n"
-    " Recursively deletes provided directories.\n"
-    " Does not return an error if one or more of the provided paths\n"
-    " do not exist.\n"
-).
--spec delete_all(list(binary())) -> {ok, nil} | {error, file_error()}.
-delete_all(Paths) ->
-    case Paths of
-        [] ->
-            {ok, nil};
-
-        [Path | Rest] ->
-            case simplifile_erl:delete(Path) of
-                {ok, nil} ->
-                    delete_all(Rest);
-
-                {error, enoent} ->
-                    delete_all(Rest);
-
-                E ->
-                    E
-            end
-    end.
-
--file("src/simplifile.gleam", 376).
-?DOC(
-    " Read a files contents as a bitstring\n"
-    " ## Example\n"
-    " ```gleam\n"
-    " let assert Ok(records) = read_bits(from: \"./users.csv\")\n"
-    " ```\n"
-).
--spec read_bits(binary()) -> {ok, bitstring()} | {error, file_error()}.
-read_bits(Filepath) ->
-    simplifile_erl:read_bits(Filepath).
-
--file("src/simplifile.gleam", 299).
-?DOC(
-    " Read a files contents as a string\n"
-    " ## Example\n"
-    " ```gleam\n"
-    " let assert Ok(records) = read(from: \"./users.csv\")\n"
-    " ```\n"
-).
--spec read(binary()) -> {ok, binary()} | {error, file_error()}.
-read(Filepath) ->
-    case simplifile_erl:read_bits(Filepath) of
-        {ok, Bits} ->
-            case gleam@bit_array:to_string(Bits) of
-                {ok, Str} ->
-                    {ok, Str};
-
-                _ ->
-                    {error, not_utf8}
-            end;
-
-        {error, E} ->
-            {error, E}
-    end.
-
--file("src/simplifile.gleam", 386).
-?DOC(
-    " Write a bitstring to a file at the given path\n"
-    " ## Example\n"
-    " ```gleam\n"
-    " let assert Ok(Nil) = write_bits(to: \"./hello_world.txt\", bits: <<\"Hello, World!\":utf8>>)\n"
-    " ```\n"
-).
--spec write_bits(binary(), bitstring()) -> {ok, nil} | {error, file_error()}.
-write_bits(Filepath, Bits) ->
-    simplifile_erl:write_bits(Filepath, Bits).
-
--file("src/simplifile.gleam", 317).
-?DOC(
-    " Write a string to a file at the given path\n"
-    " ## Example\n"
-    " ```gleam\n"
-    " let assert Ok(Nil) = write(to: \"./hello_world.txt\", contents: \"Hello, World!\")\n"
-    " ```\n"
-).
--spec write(binary(), binary()) -> {ok, nil} | {error, file_error()}.
-write(Filepath, Contents) ->
-    _pipe = Contents,
-    _pipe@1 = gleam_stdlib:identity(_pipe),
-    simplifile_erl:write_bits(Filepath, _pipe@1).
-
--file("src/simplifile.gleam", 399).
-?DOC(
-    " Append a bitstring to the contents of a file at the given path\n"
-    " ## Example\n"
-    " ```gleam\n"
-    " let assert Ok(Nil) = append_bits(to: \"./needs_more_text.txt\", bits: <<\"more text\":utf8>>)\n"
-    " ```\n"
-).
--spec append_bits(binary(), bitstring()) -> {ok, nil} | {error, file_error()}.
-append_bits(Filepath, Bits) ->
-    simplifile_erl:append_bits(Filepath, Bits).
-
--file("src/simplifile.gleam", 360).
-?DOC(
-    " Append a string to the contents of a file at the given path\n"
-    " ## Example\n"
-    " ```gleam\n"
-    " let assert Ok(Nil) = append(to: \"./needs_more_text.txt\", contents: \"more text\")\n"
-    " ```\n"
-).
--spec append(binary(), binary()) -> {ok, nil} | {error, file_error()}.
-append(Filepath, Contents) ->
-    _pipe = Contents,
-    _pipe@1 = gleam_stdlib:identity(_pipe),
-    simplifile_erl:append_bits(Filepath, _pipe@1).
-
--file("src/simplifile.gleam", 413).
-?DOC(
-    " Checks if the provided filepath exists and is a directory.\n"
-    " Returns an error if it lacks permissions to read the directory.\n"
-    "\n"
-    " ## Example\n"
-    " ```gleam\n"
-    " let assert Ok(True) = is_directory(\"./test\")\n"
-    " ```\n"
-).
--spec is_directory(binary()) -> {ok, boolean()} | {error, file_error()}.
-is_directory(Filepath) ->
-    simplifile_erl:is_directory(Filepath).
-
--file("src/simplifile.gleam", 424).
-?DOC(
-    " Create a directory at the provided filepath. Returns an error if\n"
-    " the directory already exists.\n"
-    "\n"
-    " ## Example\n"
-    " ```gleam\n"
-    " create_directory(\"./test\")\n"
-    " ```\n"
-).
--spec create_directory(binary()) -> {ok, nil} | {error, file_error()}.
-create_directory(Filepath) ->
-    simplifile_erl:create_directory(Filepath).
-
--file("src/simplifile.gleam", 439).
-?DOC(
-    " Create a symbolic link called symlink pointing to target.\n"
-    " \n"
-    " ### Footgun Alert \n"
-    " the target path is relative to *the symlink*,\n"
-    " not the current working directory. I will likely be updating \n"
-    " the label on the next major version to reflect that.\n"
-    "\n"
-    " ## Example\n"
-    " ```gleam\n"
-    " create_symlink(\"../target\", \"./symlink\")\n"
-    " ```\n"
-).
--spec create_symlink(binary(), binary()) -> {ok, nil} | {error, file_error()}.
-create_symlink(Target, Symlink) ->
-    simplifile_erl:create_symlink(Target, Symlink).
-
--file("src/simplifile.gleam", 454).
-?DOC(
-    " Create a \"hard link\" called symlink pointing to target.\n"
-    " This does not have the same relative pathing footgun as \n"
-    " `create_symlink`.\n"
-    " \n"
-    " ## Example\n"
-    " ```gleam\n"
-    " create_link(\"../target\", \"./link\")\n"
-    " ```\n"
-).
--spec create_link(binary(), binary()) -> {ok, nil} | {error, file_error()}.
-create_link(Target, Link) ->
-    simplifile_erl:create_link(Target, Link).
-
--file("src/simplifile.gleam", 469).
-?DOC(
-    " Lists the contents of a directory.\n"
-    " The list contains directory and file names, and is not recursive.\n"
-    "\n"
-    " ## Example\n"
-    " ```gleam\n"
-    " let assert Ok(files_and_folders) = read_directory(at: \"./Folder1\")\n"
-    " ```\n"
-).
--spec read_directory(binary()) -> {ok, list(binary())} | {error, file_error()}.
-read_directory(Path) ->
-    simplifile_erl:read_directory(Path).
-
--file("src/simplifile.gleam", 481).
-?DOC(
-    " Checks if the file at the provided filepath exists and is a file.\n"
-    " Returns an Error if it lacks permissions to read the file.\n"
-    "\n"
-    " ## Example\n"
-    " ```gleam\n"
-    " let assert Ok(True) = is_file(\"./test.txt\")\n"
-    " ```\n"
-).
--spec is_file(binary()) -> {ok, boolean()} | {error, file_error()}.
-is_file(Filepath) ->
-    simplifile_erl:is_file(Filepath).
-
--file("src/simplifile.gleam", 493).
-?DOC(
-    " Checks if the file at the provided filepath exists and is a symbolic link.\n"
-    " Returns an Error if it lacks permissions to read the file.\n"
-    "\n"
-    " ## Example\n"
-    " ```gleam\n"
-    " let assert Ok(True) = is_symlink(\"./symlink\")\n"
-    " ```\n"
-).
--spec is_symlink(binary()) -> {ok, boolean()} | {error, file_error()}.
-is_symlink(Filepath) ->
-    simplifile_erl:is_symlink(Filepath).
-
--file("src/simplifile.gleam", 498).
-?DOC(
-    " Creates an empty file at the given filepath. Returns an `Error(Eexist)`\n"
-    " if the file already exists.\n"
-).
--spec create_file(binary()) -> {ok, nil} | {error, file_error()}.
-create_file(Filepath) ->
-    case {begin
-            _pipe = Filepath,
-            simplifile_erl:is_file(_pipe)
-        end,
-        begin
-            _pipe@1 = Filepath,
-            simplifile_erl:is_directory(_pipe@1)
-        end} of
-        {{ok, true}, _} ->
-            {error, eexist};
-
-        {_, {ok, true}} ->
-            {error, eexist};
-
-        {_, _} ->
-            simplifile_erl:write_bits(Filepath, <<>>)
-    end.
-
--file("src/simplifile.gleam", 509).
-?DOC(
-    " Recursively creates necessary directories for a given directory\n"
-    " path. Note that if you pass a path that \"looks like\" a file, i.e.\n"
-    " `./a/b.txt`, a folder named `b.txt` will be created, so be sure\n"
-    " to pass only the path to the required directory.\n"
-).
--spec create_directory_all(binary()) -> {ok, nil} | {error, file_error()}.
-create_directory_all(Dirpath) ->
-    simplifile_erl:create_dir_all(<<Dirpath/binary, "/"/utf8>>).
-
--file("src/simplifile.gleam", 539).
-?DOC(
-    " Copy a file at a given path to another path.\n"
-    " Note: destination should include the filename, not just the directory\n"
-).
--spec copy_file(binary(), binary()) -> {ok, nil} | {error, file_error()}.
-copy_file(Src, Dest) ->
-    _pipe = file:copy(Src, Dest),
-    gleam@result:replace(_pipe, nil).
-
--file("src/simplifile.gleam", 553).
-?DOC(
-    " Rename a file at a given path to another path.\n"
-    " Note: destination should include the filename, not just the directory\n"
-).
--spec rename_file(binary(), binary()) -> {ok, nil} | {error, file_error()}.
-rename_file(Src, Dest) ->
-    simplifile_erl:rename_file(Src, Dest).
-
--file("src/simplifile.gleam", 558).
-?DOC(" Rename a file or directory.\n").
--spec rename(binary(), binary()) -> {ok, nil} | {error, file_error()}.
-rename(Src, Dest) ->
-    simplifile_erl:rename_file(Src, Dest).
-
--file("src/simplifile.gleam", 569).
--spec do_copy_directory(binary(), binary()) -> {ok, nil} | {error, file_error()}.
-do_copy_directory(Src, Dest) ->
-    gleam@result:'try'(
-        simplifile_erl:read_directory(Src),
-        fun(Segments) ->
-            _pipe = Segments,
-            gleam@list:each(
-                _pipe,
-                fun(Segment) ->
-                    Src_path = filepath:join(Src, Segment),
-                    Dest_path = filepath:join(Dest, Segment),
-                    gleam@result:'try'(
-                        simplifile_erl:file_info(Src_path),
-                        fun(Src_info) -> case file_info_type(Src_info) of
-                                file ->
-                                    gleam@result:'try'(
-                                        simplifile_erl:read_bits(Src_path),
-                                        fun(Content) -> _pipe@1 = Content,
-                                            simplifile_erl:write_bits(
-                                                Dest_path,
-                                                _pipe@1
-                                            ) end
-                                    );
-
-                                directory ->
-                                    gleam@result:'try'(
-                                        simplifile_erl:create_directory(
-                                            Dest_path
-                                        ),
-                                        fun(_) ->
-                                            do_copy_directory(
-                                                Src_path,
-                                                Dest_path
-                                            )
-                                        end
-                                    );
-
-                                symlink ->
-                                    {error,
-                                        {unknown,
-                                            <<"This is an internal bug where the `file_info` is somehow returning info about a simlink. Please file an issue on the simplifile repo."/utf8>>}};
-
-                                other ->
-                                    {error,
-                                        {unknown,
-                                            <<"Unknown file type (not file, directory, or simlink)"/utf8>>}}
-                            end end
-                    )
-                end
-            ),
-            {ok, nil}
-        end
-    ).
-
--file("src/simplifile.gleam", 561).
-?DOC(" Copy a directory recursively\n").
--spec copy_directory(binary(), binary()) -> {ok, nil} | {error, file_error()}.
-copy_directory(Src, Dest) ->
-    gleam@result:'try'(
-        create_directory_all(Dest),
-        fun(_) -> do_copy_directory(Src, Dest) end
-    ).
-
--file("src/simplifile.gleam", 523).
-?DOC(
-    " Copy a file or a directory to a new path. Copies directories recursively.\n"
-    " \n"
-    " ### Performance Note \n"
-    " This function does work to determine if the src path\n"
-    " points to a file or a directory. Consider using one of the the dedicated \n"
-    " functions `copy_file` or `copy_directory` if you already know which one you need.\n"
-).
--spec copy(binary(), binary()) -> {ok, nil} | {error, file_error()}.
-copy(Src, Dest) ->
-    gleam@result:'try'(
-        simplifile_erl:file_info(Src),
-        fun(Src_info) -> case file_info_type(Src_info) of
-                file ->
-                    copy_file(Src, Dest);
-
-                directory ->
-                    copy_directory(Src, Dest);
-
-                symlink ->
-                    {error,
-                        {unknown,
-                            <<"This is an internal bug where the `file_info` is somehow returning info about a simlink. Please file an issue on the simplifile repo."/utf8>>}};
-
-                other ->
-                    {error,
-                        {unknown,
-                            <<"Unknown file type (not file, directory, or simlink)"/utf8>>}}
-            end end
-    ).
-
--file("src/simplifile.gleam", 605).
-?DOC(" Copy a directory recursively and then delete the old one.\n").
--spec rename_directory(binary(), binary()) -> {ok, nil} | {error, file_error()}.
-rename_directory(Src, Dest) ->
-    gleam@result:'try'(
-        copy_directory(Src, Dest),
-        fun(_) -> simplifile_erl:delete(Src) end
-    ).
-
--file("src/simplifile.gleam", 615).
-?DOC(
-    " Clear the contents of a directory, deleting all files and directories within\n"
-    " but leaving the top level directory in place.\n"
-).
--spec clear_directory(binary()) -> {ok, nil} | {error, file_error()}.
-clear_directory(Path) ->
-    gleam@result:'try'(
-        simplifile_erl:read_directory(Path),
-        fun(Paths) -> _pipe = Paths,
-            _pipe@1 = gleam@list:map(
-                _pipe,
-                fun(_capture) -> filepath:join(Path, _capture) end
-            ),
-            delete_all(_pipe@1) end
-    ).
-
--file("src/simplifile.gleam", 625).
-?DOC(
-    " Returns a list of filepaths for every file in the directory, including nested\n"
-    " files.\n"
-).
--spec get_files(binary()) -> {ok, list(binary())} | {error, file_error()}.
-get_files(Directory) ->
-    gleam@result:'try'(
-        simplifile_erl:read_directory(Directory),
-        fun(Contents) ->
-            gleam@list:try_fold(
-                Contents,
-                [],
-                fun(Acc, Content) ->
-                    Path = filepath:join(Directory, Content),
-                    gleam@result:'try'(
-                        simplifile_erl:file_info(Path),
-                        fun(Info) -> case file_info_type(Info) of
-                                file ->
-                                    {ok, [Path | Acc]};
-
-                                directory ->
-                                    gleam@result:'try'(
-                                        get_files(Path),
-                                        fun(Nested_files) ->
-                                            {ok,
-                                                lists:append(Acc, Nested_files)}
-                                        end
-                                    );
-
-                                _ ->
-                                    {ok, Acc}
-                            end end
-                    )
-                end
-            )
-        end
-    ).
-
--file("src/simplifile.gleam", 648).
--spec permission_to_integer(permission()) -> integer().
-permission_to_integer(Permission) ->
-    case Permission of
-        read ->
-            8#4;
-
-        write ->
-            8#2;
-
-        execute ->
-            8#1
-    end.
-
--file("src/simplifile.gleam", 656).
+-file("src/simplifile.gleam", 700).
 -spec integer_to_permissions(integer()) -> gleam@set:set(permission()).
 integer_to_permissions(Integer) ->
     case erlang:'band'(Integer, 7) of
@@ -806,88 +213,612 @@ integer_to_permissions(Integer) ->
             gleam@set:new();
 
         _ ->
-            erlang:error(#{gleam_error => panic,
-                    message => <<"`panic` expression evaluated."/utf8>>,
-                    file => <<?FILEPATH/utf8>>,
-                    module => <<"simplifile"/utf8>>,
-                    function => <<"integer_to_permissions"/utf8>>,
-                    line => 667})
+            erlang:error(#{
+                gleam_error => panic,
+                message => ~"`panic` expression evaluated.",
+                file => ~"src/simplifile.gleam",
+                module => ~"simplifile",
+                function => ~"integer_to_permissions",
+                line => 711
+            })
     end.
 
--file("src/simplifile.gleam", 680).
--spec file_permissions_to_octal(file_permissions()) -> integer().
-file_permissions_to_octal(Permissions) ->
-    Make_permission_digit = fun(Permissions@1) -> _pipe = Permissions@1,
-        _pipe@1 = gleam@set:to_list(_pipe),
-        _pipe@2 = gleam@list:map(_pipe@1, fun permission_to_integer/1),
-        gleam@int:sum(_pipe@2) end,
-    ((Make_permission_digit(erlang:element(2, Permissions)) * 64) + (Make_permission_digit(
-        erlang:element(3, Permissions)
-    )
-    * 8))
-    + Make_permission_digit(erlang:element(4, Permissions)).
-
--file("src/simplifile.gleam", 695).
+-file("src/simplifile.gleam", 739).
 -spec octal_to_file_permissions(integer()) -> file_permissions().
 octal_to_file_permissions(Octal) ->
-    {file_permissions,
-        begin
-            _pipe = Octal,
-            _pipe@1 = erlang:'bsr'(_pipe, 6),
-            integer_to_permissions(_pipe@1)
-        end,
-        begin
-            _pipe@2 = Octal,
-            _pipe@3 = erlang:'bsr'(_pipe@2, 3),
-            integer_to_permissions(_pipe@3)
-        end,
-        begin
-            _pipe@4 = Octal,
-            integer_to_permissions(_pipe@4)
-        end}.
+    {file_permissions, begin
+        _pipe = Octal,
+        _pipe@1 = erlang:'bsr'(_pipe, 6),
+        integer_to_permissions(_pipe@1)
+    end, begin
+        _pipe@2 = Octal,
+        _pipe@3 = erlang:'bsr'(_pipe@2, 3),
+        integer_to_permissions(_pipe@3)
+    end, begin
+        _pipe@4 = Octal,
+        integer_to_permissions(_pipe@4)
+    end}.
 
 -file("src/simplifile.gleam", 237).
-?DOC(" Extract the `FilePermissions` from a given FileInfo value.\n").
 -spec file_info_permissions(file_info()) -> file_permissions().
+-doc(~" Extract the `FilePermissions` from a given FileInfo value.").
 file_info_permissions(File_info) ->
     octal_to_file_permissions(file_info_permissions_octal(File_info)).
 
--file("src/simplifile.gleam", 731).
-?DOC(
-    " Sets the permissions for a given file using an octal representation\n"
-    "\n"
-    " # Example\n"
-    " ```gleam\n"
-    " set_permissions_octal(\"./script.sh\", 0o777)\n"
-    " ```\n"
-).
--spec set_permissions_octal(binary(), integer()) -> {ok, nil} |
-    {error, file_error()}.
+-file("src/simplifile.gleam", 261).
+-spec file_info_type(file_info()) -> file_type().
+-doc(~" Extract the file type from a given FileInfo value.
+
+ ## Example
+ ```gleam
+ use info <- result.try(simplifile.file_info(\"src/app.gleam\"))
+ simplifile.file_info_type(info)
+ // --> simplifile.File
+ ```").
+file_info_type(File_info) ->
+    case erlang:'band'(erlang:element(3, File_info), 61440) of
+        32768 ->
+            file;
+
+        16384 ->
+            directory;
+
+        40960 ->
+            symlink;
+
+        _ ->
+            other
+    end.
+
+-file("src/simplifile.gleam", 281).
+-spec file_info(binary()) -> {ok, file_info()} | {error, file_error()}.
+-doc(~" Get information about a file at a given path
+
+ When the given `filepath` points to a symlink, this function will follow
+ the symlink and return information about the target file.
+
+ See `link_info` if you want to get information about a symlink instead.").
+file_info(Filepath) ->
+    simplifile_erl:file_info(Filepath).
+
+-file("src/simplifile.gleam", 291).
+-spec link_info(binary()) -> {ok, file_info()} | {error, file_error()}.
+-doc(~" Get information about a file at a given path
+
+ When the given `filepath` is a symlink, this function will return
+ infromation about the symlink itself.
+
+ See `file_info` if you want to follow symlinks instead.").
+link_info(Filepath) ->
+    simplifile_erl:link_info(Filepath).
+
+-file("src/simplifile.gleam", 383).
+-spec read_bits(binary()) -> {ok, bitstring()} | {error, file_error()}.
+-doc(~" Read a files contents as a bitstring
+ ## Example
+ ```gleam
+ let assert Ok(records) = read_bits(from: \"./users.csv\")
+ ```").
+read_bits(Filepath) ->
+    simplifile_erl:read_bits(Filepath).
+
+-file("src/simplifile.gleam", 299).
+-spec read(binary()) -> {ok, binary()} | {error, file_error()}.
+-doc(~" Read a files contents as a string
+ ## Example
+ ```gleam
+ let assert Ok(records) = read(from: \"./users.csv\")
+ ```
+").
+read(Filepath) ->
+    case simplifile_erl:read_bits(Filepath) of
+        {ok, Bits} ->
+            case gleam@bit_array:to_string(Bits) of
+                {ok, Str} ->
+                    {ok, Str};
+
+                _ ->
+                    {error, not_utf8}
+            end;
+
+        {error, E} ->
+            {error, E}
+    end.
+
+-file("src/simplifile.gleam", 393).
+-spec write_bits(binary(), bitstring()) -> {ok, nil} | {error, file_error()}.
+-doc(~" Write a bitstring to a file at the given path
+ ## Example
+ ```gleam
+ let assert Ok(Nil) = write_bits(to: \"./hello_world.txt\", bits: <<\"Hello, World!\":utf8>>)
+ ```
+").
+write_bits(Filepath, Bits) ->
+    simplifile_erl:write_bits(Filepath, Bits).
+
+-file("src/simplifile.gleam", 317).
+-spec write(binary(), binary()) -> {ok, nil} | {error, file_error()}.
+-doc(~" Write a string to a file at the given path
+ ## Example
+ ```gleam
+ let assert Ok(Nil) = write(to: \"./hello_world.txt\", contents: \"Hello, World!\")
+ ```
+").
+write(Filepath, Contents) ->
+    _pipe = Contents,
+    _pipe@1 = gleam_stdlib:identity(_pipe),
+    simplifile_erl:write_bits(Filepath, _pipe@1).
+
+-file("src/simplifile.gleam", 335).
+-spec delete(binary()) -> {ok, nil} | {error, file_error()}.
+-doc(~" Delete a file or directory at a given path. Performs a recursive
+ delete on a directory.
+ Throws an error if the path does not exist.
+ ## Example
+ ```gleam
+ let assert Ok(Nil) = delete(file_at: \"./delete_me.txt\")
+ ```").
+delete(Path) ->
+    simplifile_erl:delete(Path).
+
+-file("src/simplifile.gleam", 342).
+-spec delete_file(binary()) -> {ok, nil} | {error, file_error()}.
+-doc(~" Delete a file. 
+ On Erlang, if you're specifically deleting a single file, this function 
+ should be more efficient than `delete` because it can pass the raw option.").
+delete_file(Path) ->
+    simplifile_erl:delete_file(Path).
+
+-file("src/simplifile.gleam", 349).
+-spec delete_all(list(binary())) -> {ok, nil} | {error, file_error()}.
+-doc(~" Delete all files/directories specified in a list of paths.
+ Recursively deletes provided directories.
+ Does not return an error if one or more of the provided paths
+ do not exist.
+").
+delete_all(Paths) ->
+    case Paths of
+        [] ->
+            {ok, nil};
+
+        [Path | Rest] ->
+            case simplifile_erl:delete(Path) of
+                {ok, nil} ->
+                    delete_all(Rest);
+
+                {error, enoent} ->
+                    delete_all(Rest);
+
+                E ->
+                    E
+            end
+    end.
+
+-file("src/simplifile.gleam", 406).
+-spec append_bits(binary(), bitstring()) -> {ok, nil} | {error, file_error()}.
+-doc(~" Append a bitstring to the contents of a file at the given path
+ ## Example
+ ```gleam
+ let assert Ok(Nil) = append_bits(to: \"./needs_more_text.txt\", bits: <<\"more text\":utf8>>)
+ ```
+").
+append_bits(Filepath, Bits) ->
+    simplifile_erl:append_bits(Filepath, Bits).
+
+-file("src/simplifile.gleam", 367).
+-spec append(binary(), binary()) -> {ok, nil} | {error, file_error()}.
+-doc(~" Append a string to the contents of a file at the given path
+ ## Example
+ ```gleam
+ let assert Ok(Nil) = append(to: \"./needs_more_text.txt\", contents: \"more text\")
+ ```
+").
+append(Filepath, Contents) ->
+    _pipe = Contents,
+    _pipe@1 = gleam_stdlib:identity(_pipe),
+    simplifile_erl:append_bits(Filepath, _pipe@1).
+
+-file("src/simplifile.gleam", 420).
+-spec is_directory(binary()) -> {ok, boolean()} | {error, file_error()}.
+-doc(~" Checks if the provided filepath exists and is a directory.
+ Returns an error if it lacks permissions to read the directory.
+ Returns `Ok(False)` if the path points to a regular file.
+ Follows symlinks, i.e. returns `Ok(True)` if the path is a symlink to a directory.
+
+ ## Example
+ ```gleam
+ let assert Ok(True) = is_directory(\"./test\")
+ ```").
+is_directory(Filepath) ->
+    case simplifile_erl:file_info(Filepath) of
+        {ok, Info} ->
+            {ok, file_info_type(Info) =:= directory};
+
+        {error, enoent} ->
+            {ok, false};
+
+        {error, E} ->
+            {error, E}
+    end.
+
+-file("src/simplifile.gleam", 437).
+-spec create_directory(binary()) -> {ok, nil} | {error, file_error()}.
+-doc(~" Create a directory at the provided filepath. Returns an error if
+ the directory already exists.
+
+ ## Example
+ ```gleam
+ create_directory(\"./test\")
+ ```").
+create_directory(Filepath) ->
+    simplifile_erl:create_directory(Filepath).
+
+-file("src/simplifile.gleam", 452).
+-spec create_symlink(binary(), binary()) -> {ok, nil} | {error, file_error()}.
+-doc(~" Create a symbolic link called symlink pointing to target.
+ 
+ ### Footgun Alert 
+ the target path is relative to *the symlink*,
+ not the current working directory. I will likely be updating 
+ the label on the next major version to reflect that.
+
+ ## Example
+ ```gleam
+ create_symlink(\"../target\", \"./symlink\")
+ ```").
+create_symlink(Target, Symlink) ->
+    simplifile_erl:create_symlink(Target, Symlink).
+
+-file("src/simplifile.gleam", 467).
+-spec create_link(binary(), binary()) -> {ok, nil} | {error, file_error()}.
+-doc(~" Create a \"hard link\" called symlink pointing to target.
+ This does not have the same relative pathing footgun as 
+ `create_symlink`.
+ 
+ ## Example
+ ```gleam
+ create_link(\"../target\", \"./link\")
+ ```").
+create_link(Target, Link) ->
+    simplifile_erl:create_link(Target, Link).
+
+-file("src/simplifile.gleam", 482).
+-spec read_directory(binary()) -> {ok, list(binary())} | {error, file_error()}.
+-doc(~" Lists the contents of a directory.
+ The list contains directory and file names, and is not recursive.
+
+ ## Example
+ ```gleam
+ let assert Ok(files_and_folders) = read_directory(at: \"./Folder1\")
+ ```
+").
+read_directory(Path) ->
+    simplifile_erl:read_directory(Path).
+
+-file("src/simplifile.gleam", 494).
+-spec is_file(binary()) -> {ok, boolean()} | {error, file_error()}.
+-doc(~" Checks if the file at the provided filepath exists and is a file.
+ Returns an error if it lacks permissions to read the file.
+ Returns `Ok(False)` if the path points to a directory.
+ Follows symlinks, i.e. if the path is a symlink to a file, returns `Ok(True)`.
+
+ ## Example
+ ```gleam
+ let assert Ok(True) = is_file(\"./test.txt\")
+ ```
+").
+is_file(Filepath) ->
+    case simplifile_erl:file_info(Filepath) of
+        {ok, Info} ->
+            {ok, file_info_type(Info) =:= file};
+
+        {error, enoent} ->
+            {ok, false};
+
+        {error, E} ->
+            {error, E}
+    end.
+
+-file("src/simplifile.gleam", 510).
+-spec is_symlink(binary()) -> {ok, boolean()} | {error, file_error()}.
+-doc(~" Checks if the file at the provided filepath exists and is a symbolic link.
+ Returns an error if it lacks permissions to read the file.
+
+ ## Example
+ ```gleam
+ let assert Ok(True) = is_symlink(\"./symlink\")
+ ```
+").
+is_symlink(Filepath) ->
+    case simplifile_erl:link_info(Filepath) of
+        {ok, Info} ->
+            {ok, file_info_type(Info) =:= symlink};
+
+        {error, enoent} ->
+            {ok, false};
+
+        {error, E} ->
+            {error, E}
+    end.
+
+-file("src/simplifile.gleam", 521).
+-spec exists(binary(), boolean()) -> {ok, boolean()} | {error, file_error()}.
+-doc(~" Checks if anything exists at the path.
+ If `follow_links` is true, it will follow a link, returning false if nothing is there.
+ If `follow_links` is false, it will return true for any symlink.").
+exists(Filepath, Follow_links) ->
+    Lookup = case Follow_links of
+        true ->
+            fun simplifile_erl:file_info/1;
+
+        false ->
+            fun simplifile_erl:link_info/1
+    end,
+    case Lookup(Filepath) of
+        {ok, _} ->
+            {ok, true};
+
+        {error, enoent} ->
+            {ok, false};
+
+        {error, E} ->
+            {error, E}
+    end.
+
+-file("src/simplifile.gleam", 539).
+-spec create_file(binary()) -> {ok, nil} | {error, file_error()}.
+-doc(~" Creates an empty file at the given filepath. Returns an `Error(Eexist)`
+ if the file already exists.
+").
+create_file(Filepath) ->
+    case {begin
+        _pipe = Filepath,
+        is_file(_pipe)
+    end, begin
+        _pipe@1 = Filepath,
+        is_directory(_pipe@1)
+    end} of
+        {{ok, true}, _} ->
+            {error, eexist};
+
+        {_, {ok, true}} ->
+            {error, eexist};
+
+        {_, _} ->
+            simplifile_erl:write_bits(Filepath, <<>>)
+    end.
+
+-file("src/simplifile.gleam", 550).
+-spec create_directory_all(binary()) -> {ok, nil} | {error, file_error()}.
+-doc(~" Recursively creates necessary directories for a given directory
+ path. Note that if you pass a path that \"looks like\" a file, i.e.
+ `./a/b.txt`, a folder named `b.txt` will be created, so be sure
+ to pass only the path to the required directory.").
+create_directory_all(Dirpath) ->
+    simplifile_erl:create_dir_all(<<Dirpath/binary, "/"/utf8>>).
+
+-file("src/simplifile.gleam", 613).
+-spec do_copy_directory(binary(), binary()) -> {ok, nil} | {error, file_error()}.
+do_copy_directory(Src, Dest) ->
+    gleam@result:'try'(simplifile_erl:read_directory(Src), fun(Segments) ->
+        _pipe = Segments,
+        gleam@list:each(_pipe, fun(Segment) ->
+            Src_path = filepath:join(Src, Segment),
+            Dest_path = filepath:join(Dest, Segment),
+            gleam@result:'try'(simplifile_erl:file_info(Src_path), fun(Src_info) ->
+                case file_info_type(Src_info) of
+                    file ->
+                        gleam@result:'try'(simplifile_erl:read_bits(Src_path), fun(Content) ->
+                            _pipe@1 = Content,
+                            simplifile_erl:write_bits(Dest_path, _pipe@1)
+                        end);
+
+                    directory ->
+                        gleam@result:'try'(simplifile_erl:create_directory(Dest_path), fun(_) ->
+                            do_copy_directory(Src_path, Dest_path)
+                        end);
+
+                    symlink ->
+                        {error, {unknown, ~"This is an internal bug where the `file_info` is somehow returning info about a simlink. Please file an issue on the simplifile repo."}};
+
+                    other ->
+                        {error, {unknown, ~"Unknown file type (not file, directory, or simlink)"}}
+                end
+            end)
+        end),
+        {ok, nil}
+    end).
+
+-file("src/simplifile.gleam", 602).
+-spec copy_directory(binary(), binary()) -> {ok, nil} | {error, file_error()}.
+-doc(~" Copy a directory recursively").
+copy_directory(Src, Dest) ->
+    gleam@result:'try'(create_directory_all(Dest), fun(_) ->
+        do_copy_directory(Src, Dest)
+    end).
+
+-file("src/simplifile.gleam", 580).
+-spec copy_file(binary(), binary()) -> {ok, nil} | {error, file_error()}.
+-doc(~" Copy a file at a given path to another path.
+ Note: destination should include the filename, not just the directory").
+copy_file(Src, Dest) ->
+    _pipe = file:copy(Src, Dest),
+    gleam@result:replace(_pipe, nil).
+
+-file("src/simplifile.gleam", 564).
+-spec copy(binary(), binary()) -> {ok, nil} | {error, file_error()}.
+-doc(~" Copy a file or a directory to a new path. Copies directories recursively.
+ 
+ ### Performance Note 
+ This function does work to determine if the src path
+ points to a file or a directory. Consider using one of the the dedicated 
+ functions `copy_file` or `copy_directory` if you already know which one you need.").
+copy(Src, Dest) ->
+    gleam@result:'try'(simplifile_erl:file_info(Src), fun(Src_info) ->
+        case file_info_type(Src_info) of
+            file ->
+                copy_file(Src, Dest);
+
+            directory ->
+                copy_directory(Src, Dest);
+
+            symlink ->
+                {error, {unknown, ~"This is an internal bug where the `file_info` is somehow returning info about a simlink. Please file an issue on the simplifile repo."}};
+
+            other ->
+                {error, {unknown, ~"Unknown file type (not file, directory, or simlink)"}}
+        end
+    end).
+
+-file("src/simplifile.gleam", 594).
+-spec rename_file(binary(), binary()) -> {ok, nil} | {error, file_error()}.
+-doc(~" Rename a file at a given path to another path.
+ Note: destination should include the filename, not just the directory").
+rename_file(Src, Dest) ->
+    simplifile_erl:rename_file(Src, Dest).
+
+-file("src/simplifile.gleam", 599).
+-spec rename(binary(), binary()) -> {ok, nil} | {error, file_error()}.
+-doc(~" Rename a file or directory.").
+rename(Src, Dest) ->
+    simplifile_erl:rename_file(Src, Dest).
+
+-file("src/simplifile.gleam", 649).
+-spec rename_directory(binary(), binary()) -> {ok, nil} | {error, file_error()}.
+-doc(~" Copy a directory recursively and then delete the old one.").
+rename_directory(Src, Dest) ->
+    gleam@result:'try'(copy_directory(Src, Dest), fun(_) ->
+        simplifile_erl:delete(Src)
+    end).
+
+-file("src/simplifile.gleam", 659).
+-spec clear_directory(binary()) -> {ok, nil} | {error, file_error()}.
+-doc(~" Clear the contents of a directory, deleting all files and directories within
+ but leaving the top level directory in place.").
+clear_directory(Path) ->
+    gleam@result:'try'(simplifile_erl:read_directory(Path), fun(Paths) ->
+        _pipe = Paths,
+        _pipe@1 = gleam@list:map(_pipe, fun(_capture) ->
+            filepath:join(Path, _capture)
+        end),
+        delete_all(_pipe@1)
+    end).
+
+-file("src/simplifile.gleam", 669).
+-spec get_files(binary()) -> {ok, list(binary())} | {error, file_error()}.
+-doc(~" Returns a list of filepaths for every file in the directory, including nested
+ files.
+").
+get_files(Directory) ->
+    gleam@result:'try'(simplifile_erl:read_directory(Directory), fun(Contents) ->
+        gleam@list:try_fold(Contents, [], fun(Acc, Content) ->
+            Path = filepath:join(Directory, Content),
+            gleam@result:'try'(simplifile_erl:file_info(Path), fun(Info) ->
+                case file_info_type(Info) of
+                    file ->
+                        {ok, [Path | Acc]};
+
+                    directory ->
+                        gleam@result:'try'(get_files(Path), fun(Nested_files) ->
+                            {ok, lists:append(Acc, Nested_files)}
+                        end);
+
+                    _ ->
+                        {ok, Acc}
+                end
+            end)
+        end)
+    end).
+
+-file("src/simplifile.gleam", 692).
+-spec permission_to_integer(permission()) -> integer().
+permission_to_integer(Permission) ->
+    case Permission of
+        read ->
+            4;
+
+        write ->
+            2;
+
+        execute ->
+            1
+    end.
+
+-file("src/simplifile.gleam", 724).
+-spec file_permissions_to_octal(file_permissions()) -> integer().
+file_permissions_to_octal(Permissions) ->
+    Make_permission_digit = fun(Permissions@1) ->
+        _pipe = Permissions@1,
+        _pipe@1 = gleam@set:to_list(_pipe),
+        _pipe@2 = gleam@list:map(_pipe@1, fun permission_to_integer/1),
+        gleam@int:sum(_pipe@2)
+    end,
+    ((Make_permission_digit(erlang:element(2, Permissions)) * 64) + (Make_permission_digit(erlang:element(3, Permissions)) * 8)) + Make_permission_digit(erlang:element(4, Permissions)).
+
+-file("src/simplifile.gleam", 775).
+-spec set_permissions_octal(binary(), integer()) -> {ok, nil} | {error, file_error()}.
+-doc(~" Sets the permissions for a given file using an octal representation
+
+ # Example
+ ```gleam
+ set_permissions_octal(\"./script.sh\", 0o777)
+ ```").
 set_permissions_octal(Filepath, Permissions) ->
     simplifile_erl:set_permissions_octal(Filepath, Permissions).
 
--file("src/simplifile.gleam", 716).
-?DOC(
-    " Sets the permissions for a given file\n"
-    "\n"
-    " # Example\n"
-    " ```gleam\n"
-    " let all = set.from_list([Read, Write, Execute])\n"
-    " let all = FilePermissions(user: all, group: all, other: all)\n"
-    " let assert Ok(Nil) = set_permissions(\"./script.sh\", all)\n"
-    " ```\n"
-).
--spec set_permissions(binary(), file_permissions()) -> {ok, nil} |
-    {error, file_error()}.
-set_permissions(Filepath, Permissions) ->
-    simplifile_erl:set_permissions_octal(
-        Filepath,
-        file_permissions_to_octal(Permissions)
-    ).
+-file("src/simplifile.gleam", 760).
+-spec set_permissions(binary(), file_permissions()) -> {ok, nil} | {error, file_error()}.
+-doc(~" Sets the permissions for a given file
 
--file("src/simplifile.gleam", 739).
-?DOC(" Returns the current working directory\n").
+ # Example
+ ```gleam
+ let all = set.from_list([Read, Write, Execute])
+ let all = FilePermissions(user: all, group: all, other: all)
+ let assert Ok(Nil) = set_permissions(\"./script.sh\", all)
+ ```").
+set_permissions(Filepath, Permissions) ->
+    simplifile_erl:set_permissions_octal(Filepath, file_permissions_to_octal(Permissions)).
+
+-file("src/simplifile.gleam", 783).
 -spec current_directory() -> {ok, binary()} | {error, file_error()}.
+-doc(~" Returns the current working directory
+").
 current_directory() ->
     _pipe = file:get_cwd(),
     gleam@result:map(_pipe, fun gleam_stdlib:utf_codepoint_list_to_string/1).
+
+-file("src/simplifile.gleam", 807).
+-spec resolve(binary()) -> {ok, binary()} | {error, file_error()}.
+-doc(~" Converts a relative path to an absolute path which starts in the current working directory.
+
+ Returns an error if the relative path could not be resolved.
+ 
+ # Example:
+ ```gleam
+ // Resolving a relative path resolves the full absolute path.
+ // Assume the current working directory is /home/lucy.
+ assert resolve(\"./tmp/../gleam\") == Ok(\"/home/lucy/gleam\")
+
+ // Resolving an absolute path returns that absolute path.
+ assert resolve(\"/tmp/gleam\") == Ok(\"/tmp/gleam\")
+ 
+ // Tried to go two directories back, but was only able to go one back. Path is unresolvable.
+ assert resolve(\"/tmp/../..\") == Error(Enoent) 
+ ```").
+resolve(Path) ->
+    _pipe = filename:absname(Path),
+    _pipe@1 = filepath:expand(_pipe),
+    gleam@result:replace_error(_pipe@1, enoent).
+
+-file("src/simplifile.gleam", 826).
+-spec touch(binary()) -> {ok, nil} | {error, file_error()}.
+-doc(~" Mimics the `touch` command, creating a file if it doesn't exist, and
+ updating its access and modification times to the current time if it does.
+
+ ## Example
+ ```gleam
+ let assert Ok(Nil) = touch(\"./new_or_existing_file.txt\")
+ ```").
+touch(Path) ->
+    simplifile_erl:touch(Path).
+

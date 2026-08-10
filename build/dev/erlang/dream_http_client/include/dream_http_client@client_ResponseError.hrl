@@ -1,0 +1,1 @@
+-record(response_error, {response :: dream_http_client@client:http_response()}).

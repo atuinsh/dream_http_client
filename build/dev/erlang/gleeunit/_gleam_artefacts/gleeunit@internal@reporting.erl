@@ -165,11 +165,11 @@ inspect_value(Value) ->
         unevaluated ->
             grey(<<"unevaluated"/utf8>>);
 
-        {literal, _} ->
-            grey(<<"literal"/utf8>>);
+        {literal, Value@1} ->
+            gleam@string:inspect(Value@1);
 
-        {expression, Value@1} ->
-            gleam@string:inspect(Value@1)
+        {expression, Value@2} ->
+            gleam@string:inspect(Value@2)
     end.
 
 -file("src/gleeunit/internal/reporting.gleam", 179).

@@ -14,7 +14,7 @@
 
 -type dynamic_() :: any().
 
--file("src/gleam/dynamic.gleam", 30).
+-file("src/gleam/dynamic.gleam", 29).
 ?DOC(
     " Return a string indicating the type of the dynamic value.\n"
     "\n"
@@ -23,21 +23,20 @@
     " `gleam/dynamic/decode` module.\n"
     "\n"
     " ```gleam\n"
-    " classify(string(\"Hello\"))\n"
-    " // -> \"String\"\n"
+    " assert dynamic.classify(dynamic.string(\"Hello\")) == \"String\"\n"
     " ```\n"
 ).
 -spec classify(dynamic_()) -> binary().
 classify(Data) ->
     gleam_stdlib:classify_dynamic(Data).
 
--file("src/gleam/dynamic.gleam", 36).
+-file("src/gleam/dynamic.gleam", 35).
 ?DOC(" Create a dynamic value from a bool.\n").
 -spec bool(boolean()) -> dynamic_().
 bool(A) ->
     gleam_stdlib:identity(A).
 
--file("src/gleam/dynamic.gleam", 44).
+-file("src/gleam/dynamic.gleam", 43).
 ?DOC(
     " Create a dynamic value from a string.\n"
     "\n"
@@ -47,31 +46,31 @@ bool(A) ->
 string(A) ->
     gleam_stdlib:identity(A).
 
--file("src/gleam/dynamic.gleam", 50).
+-file("src/gleam/dynamic.gleam", 49).
 ?DOC(" Create a dynamic value from a float.\n").
 -spec float(float()) -> dynamic_().
 float(A) ->
     gleam_stdlib:identity(A).
 
--file("src/gleam/dynamic.gleam", 56).
+-file("src/gleam/dynamic.gleam", 55).
 ?DOC(" Create a dynamic value from an int.\n").
 -spec int(integer()) -> dynamic_().
 int(A) ->
     gleam_stdlib:identity(A).
 
--file("src/gleam/dynamic.gleam", 62).
+-file("src/gleam/dynamic.gleam", 61).
 ?DOC(" Create a dynamic value from a bit array.\n").
 -spec bit_array(bitstring()) -> dynamic_().
 bit_array(A) ->
     gleam_stdlib:identity(A).
 
--file("src/gleam/dynamic.gleam", 68).
+-file("src/gleam/dynamic.gleam", 67).
 ?DOC(" Create a dynamic value from a list.\n").
 -spec list(list(dynamic_())) -> dynamic_().
 list(A) ->
     gleam_stdlib:identity(A).
 
--file("src/gleam/dynamic.gleam", 77).
+-file("src/gleam/dynamic.gleam", 76).
 ?DOC(
     " Create a dynamic value from a list, converting it to a sequential runtime\n"
     " format rather than the regular list format.\n"
@@ -82,9 +81,9 @@ list(A) ->
 array(A) ->
     erlang:list_to_tuple(A).
 
--file("src/gleam/dynamic.gleam", 85).
+-file("src/gleam/dynamic.gleam", 84).
 ?DOC(
-    " Create a dynamic value made an unordered series of keys and values, where\n"
+    " Create a dynamic value made of an unordered series of keys and values, where\n"
     " the keys are unique.\n"
     "\n"
     " On Erlang this will be a map, on JavaScript this will be a Gleam dict\n"
@@ -94,7 +93,7 @@ array(A) ->
 properties(Entries) ->
     gleam_stdlib:identity(maps:from_list(Entries)).
 
--file("src/gleam/dynamic.gleam", 94).
+-file("src/gleam/dynamic.gleam", 93).
 ?DOC(
     " A dynamic value representing nothing.\n"
     "\n"

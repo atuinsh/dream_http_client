@@ -1,5 +1,5 @@
 name = "gleeunit"
-version = "1.9.0"
+version = "1.11.0"
 licences = ["Apache-2.0"]
 description = "A simple test runner for Gleam, using EUnit on Erlang"
 repository = { type = "github", user = "lpil", repo = "gleeunit" }
@@ -10,7 +10,7 @@ gleam = ">= 1.13.0"
 allow_read = ["gleam.toml", "test", "build"]
 
 [dependencies]
-gleam_stdlib = ">= 0.60.0 and < 1.0.0"
+gleam_stdlib = ">= 1.0.0 and < 2.0.0"
 
 [dev-dependencies]
 testhelper = { "path" = "./testhelper" }

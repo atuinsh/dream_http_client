@@ -1,7 +1,6 @@
 -record(builder, {
     child_type :: gleam@otp@supervision:child_type(),
-    template :: fun((any()) -> {ok, gleam@otp@actor:started(any())} |
-        {error, gleam@otp@actor:start_error()}),
+    template :: fun((any()) -> {ok, gleam@otp@actor:started(any())} | {error, gleam@otp@actor:start_error()}),
     restart_strategy :: gleam@otp@supervision:restart(),
     intensity :: integer(),
     period :: integer(),

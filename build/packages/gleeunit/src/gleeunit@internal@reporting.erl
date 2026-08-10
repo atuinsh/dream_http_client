@@ -1,7 +1,7 @@
 -module(gleeunit@internal@reporting).
 -compile([no_auto_import, nowarn_unused_vars, nowarn_unused_function, nowarn_nomatch, inline]).
 -define(FILEPATH, "src/gleeunit/internal/reporting.gleam").
--export([new_state/0, test_skipped/3, test_passed/1, finished/1, eunit_missing/0, test_failed/4]).
+-export([new_state/0, finished/1, test_passed/1, test_failed/4, eunit_missing/0, test_skipped/3]).
 -export_type([state/0]).
 
 -if(?OTP_RELEASE >= 27).
@@ -22,45 +22,11 @@
 new_state() ->
     {state, 0, 0, 0}.
 
--file("src/gleeunit/internal/reporting.gleam", 207).
+-file("src/gleeunit/internal/reporting.gleam", 223).
 ?DOC(false).
--spec bold(binary()) -> binary().
-bold(Text) ->
-    <<<<"\x{001b}[1m"/utf8, Text/binary>>/binary, "\x{001b}[22m"/utf8>>.
-
--file("src/gleeunit/internal/reporting.gleam", 211).
-?DOC(false).
--spec cyan(binary()) -> binary().
-cyan(Text) ->
-    <<<<"\x{001b}[36m"/utf8, Text/binary>>/binary, "\x{001b}[39m"/utf8>>.
-
--file("src/gleeunit/internal/reporting.gleam", 191).
-?DOC(false).
--spec code_snippet(gleam@option:option(bitstring()), integer(), integer()) -> binary().
-code_snippet(Src, Start, End) ->
-    _pipe = begin
-        gleam@result:'try'(
-            gleam@option:to_result(Src, nil),
-            fun(Src@1) ->
-                gleam@result:'try'(
-                    gleam_stdlib:bit_array_slice(Src@1, Start, End - Start),
-                    fun(Snippet) ->
-                        gleam@result:'try'(
-                            gleam@bit_array:to_string(Snippet),
-                            fun(Snippet@1) ->
-                                Snippet@2 = <<<<<<(cyan(<<" code"/utf8>>))/binary,
-                                            ": "/utf8>>/binary,
-                                        Snippet@1/binary>>/binary,
-                                    "\n"/utf8>>,
-                                {ok, Snippet@2}
-                            end
-                        )
-                    end
-                )
-            end
-        )
-    end,
-    gleam@result:unwrap(_pipe, <<""/utf8>>).
+-spec red(binary()) -> binary().
+red(Text) ->
+    <<<<"\x{001b}[31m"/utf8, Text/binary>>/binary, "\x{001b}[39m"/utf8>>.
 
 -file("src/gleeunit/internal/reporting.gleam", 215).
 ?DOC(false).
@@ -68,41 +34,11 @@ code_snippet(Src, Start, End) ->
 yellow(Text) ->
     <<<<"\x{001b}[33m"/utf8, Text/binary>>/binary, "\x{001b}[39m"/utf8>>.
 
--file("src/gleeunit/internal/reporting.gleam", 202).
-?DOC(false).
--spec test_skipped(state(), binary(), binary()) -> state().
-test_skipped(State, Module, Function) ->
-    gleam_stdlib:print(
-        <<<<<<<<"\n"/utf8, Module/binary>>/binary, "."/utf8>>/binary,
-                Function/binary>>/binary,
-            (yellow(<<" skipped"/utf8>>))/binary>>
-    ),
-    {state,
-        erlang:element(2, State),
-        erlang:element(3, State),
-        erlang:element(4, State) + 1}.
-
 -file("src/gleeunit/internal/reporting.gleam", 219).
 ?DOC(false).
 -spec green(binary()) -> binary().
 green(Text) ->
     <<<<"\x{001b}[32m"/utf8, Text/binary>>/binary, "\x{001b}[39m"/utf8>>.
-
--file("src/gleeunit/internal/reporting.gleam", 66).
-?DOC(false).
--spec test_passed(state()) -> state().
-test_passed(State) ->
-    gleam_stdlib:print(green(<<"."/utf8>>)),
-    {state,
-        erlang:element(2, State) + 1,
-        erlang:element(3, State),
-        erlang:element(4, State)}.
-
--file("src/gleeunit/internal/reporting.gleam", 223).
-?DOC(false).
--spec red(binary()) -> binary().
-red(Text) ->
-    <<<<"\x{001b}[31m"/utf8, Text/binary>>/binary, "\x{001b}[39m"/utf8>>.
 
 -file("src/gleeunit/internal/reporting.gleam", 19).
 ?DOC(false).
@@ -152,19 +88,15 @@ finished(State) ->
             1
     end.
 
--file("src/gleeunit/internal/reporting.gleam", 89).
+-file("src/gleeunit/internal/reporting.gleam", 66).
 ?DOC(false).
--spec eunit_missing() -> {ok, any()} | {error, nil}.
-eunit_missing() ->
-    Message = <<(bold(red(<<"Error"/utf8>>)))/binary,
-        ": EUnit libraries not found.
-
-Your Erlang installation seems to be incomplete. If you installed Erlang using
-a package manager ensure that you have installed the full Erlang
-distribution instead of a stripped-down version.
-"/utf8>>,
-    gleam_stdlib:print_error(Message),
-    {error, nil}.
+-spec test_passed(state()) -> state().
+test_passed(State) ->
+    gleam_stdlib:print(green(<<"."/utf8>>)),
+    {state,
+        erlang:element(2, State) + 1,
+        erlang:element(3, State),
+        erlang:element(4, State)}.
 
 -file("src/gleeunit/internal/reporting.gleam", 227).
 ?DOC(false).
@@ -185,6 +117,46 @@ format_unknown(Module, Function, Error) ->
                 "\n"/utf8>>]
     ).
 
+-file("src/gleeunit/internal/reporting.gleam", 211).
+?DOC(false).
+-spec cyan(binary()) -> binary().
+cyan(Text) ->
+    <<<<"\x{001b}[36m"/utf8, Text/binary>>/binary, "\x{001b}[39m"/utf8>>.
+
+-file("src/gleeunit/internal/reporting.gleam", 191).
+?DOC(false).
+-spec code_snippet(gleam@option:option(bitstring()), integer(), integer()) -> binary().
+code_snippet(Src, Start, End) ->
+    _pipe = begin
+        gleam@result:'try'(
+            gleam@option:to_result(Src, nil),
+            fun(Src@1) ->
+                gleam@result:'try'(
+                    gleam_stdlib:bit_array_slice(Src@1, Start, End - Start),
+                    fun(Snippet) ->
+                        gleam@result:'try'(
+                            gleam@bit_array:to_string(Snippet),
+                            fun(Snippet@1) ->
+                                Snippet@2 = <<<<<<(cyan(<<" code"/utf8>>))/binary,
+                                            ": "/utf8>>/binary,
+                                        Snippet@1/binary>>/binary,
+                                    "\n"/utf8>>,
+                                {ok, Snippet@2}
+                            end
+                        )
+                    end
+                )
+            end
+        )
+    end,
+    gleam@result:unwrap(_pipe, <<""/utf8>>).
+
+-file("src/gleeunit/internal/reporting.gleam", 207).
+?DOC(false).
+-spec bold(binary()) -> binary().
+bold(Text) ->
+    <<<<"\x{001b}[1m"/utf8, Text/binary>>/binary, "\x{001b}[22m"/utf8>>.
+
 -file("src/gleeunit/internal/reporting.gleam", 183).
 ?DOC(false).
 -spec inspect_value(gleeunit@internal@gleam_panic:asserted_expression()) -> binary().
@@ -193,11 +165,11 @@ inspect_value(Value) ->
         unevaluated ->
             grey(<<"unevaluated"/utf8>>);
 
-        {literal, _} ->
-            grey(<<"literal"/utf8>>);
+        {literal, Value@1} ->
+            gleam@string:inspect(Value@1);
 
-        {expression, Value@1} ->
-            gleam@string:inspect(Value@1)
+        {expression, Value@2} ->
+            gleam@string:inspect(Value@2)
     end.
 
 -file("src/gleeunit/internal/reporting.gleam", 179).
@@ -341,3 +313,31 @@ test_failed(State, Module, Function, Error) ->
         erlang:element(2, State),
         erlang:element(3, State) + 1,
         erlang:element(4, State)}.
+
+-file("src/gleeunit/internal/reporting.gleam", 89).
+?DOC(false).
+-spec eunit_missing() -> {ok, any()} | {error, nil}.
+eunit_missing() ->
+    Message = <<(bold(red(<<"Error"/utf8>>)))/binary,
+        ": EUnit libraries not found.
+
+Your Erlang installation seems to be incomplete. If you installed Erlang using
+a package manager ensure that you have installed the full Erlang
+distribution instead of a stripped-down version.
+"/utf8>>,
+    gleam_stdlib:print_error(Message),
+    {error, nil}.
+
+-file("src/gleeunit/internal/reporting.gleam", 202).
+?DOC(false).
+-spec test_skipped(state(), binary(), binary()) -> state().
+test_skipped(State, Module, Function) ->
+    gleam_stdlib:print(
+        <<<<<<<<"\n"/utf8, Module/binary>>/binary, "."/utf8>>/binary,
+                Function/binary>>/binary,
+            (yellow(<<" skipped"/utf8>>))/binary>>
+    ),
+    {state,
+        erlang:element(2, State),
+        erlang:element(3, State),
+        erlang:element(4, State) + 1}.

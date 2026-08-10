@@ -14,7 +14,7 @@
 
 ?MODULEDOC(
     " `BytesTree` is a type used for efficiently building binary content to be\n"
-    " written to a file or a socket. Internally it is represented as tree so to\n"
+    " written to a file or a socket. Internally it is represented as a tree so to\n"
     " append or prepend to a bytes tree is a constant time operation that\n"
     " allocates a new node in the tree without copying any of the content. When\n"
     " writing to an output stream the tree is traversed and the content is sent\n"
@@ -39,7 +39,7 @@
     {text, gleam@string_tree:string_tree()} |
     {many, list(bytes_tree())}.
 
--file("src/gleam/bytes_tree.gleam", 98).
+-file("src/gleam/bytes_tree.gleam", 101).
 ?DOC(
     " Joins a list of bytes trees into a single one.\n"
     "\n"
@@ -58,7 +58,7 @@ concat(Trees) ->
 new() ->
     gleam_stdlib:identity([]).
 
--file("src/gleam/bytes_tree.gleam", 136).
+-file("src/gleam/bytes_tree.gleam", 139).
 ?DOC(
     " Creates a new bytes tree from a bit array.\n"
     "\n"
@@ -67,10 +67,10 @@ new() ->
 -spec from_bit_array(bitstring()) -> bytes_tree().
 from_bit_array(Bits) ->
     _pipe = Bits,
-    _pipe@1 = gleam_stdlib:bit_array_pad_to_bytes(_pipe),
+    _pipe@1 = gleam@bit_array:pad_to_bytes(_pipe),
     gleam_stdlib:wrap_list(_pipe@1).
 
--file("src/gleam/bytes_tree.gleam", 68).
+-file("src/gleam/bytes_tree.gleam", 71).
 ?DOC(
     " Appends a bytes tree onto the end of another.\n"
     "\n"
@@ -110,7 +110,7 @@ append(First, Second) ->
 prepend_tree(Second, First) ->
     gleam_stdlib:iodata_append(First, Second).
 
--file("src/gleam/bytes_tree.gleam", 118).
+-file("src/gleam/bytes_tree.gleam", 121).
 ?DOC(
     " Creates a new bytes tree from a string.\n"
     "\n"
@@ -121,7 +121,7 @@ prepend_tree(Second, First) ->
 from_string(String) ->
     gleam_stdlib:wrap_list(String).
 
--file("src/gleam/bytes_tree.gleam", 80).
+-file("src/gleam/bytes_tree.gleam", 83).
 ?DOC(
     " Prepends a string onto the start of a bytes tree.\n"
     "\n"
@@ -132,7 +132,7 @@ from_string(String) ->
 prepend_string(Second, First) ->
     gleam_stdlib:iodata_append(gleam_stdlib:wrap_list(First), Second).
 
--file("src/gleam/bytes_tree.gleam", 89).
+-file("src/gleam/bytes_tree.gleam", 92).
 ?DOC(
     " Appends a string onto the end of a bytes tree.\n"
     "\n"
@@ -143,7 +143,7 @@ prepend_string(Second, First) ->
 append_string(First, Second) ->
     gleam_stdlib:iodata_append(First, gleam_stdlib:wrap_list(Second)).
 
--file("src/gleam/bytes_tree.gleam", 106).
+-file("src/gleam/bytes_tree.gleam", 109).
 ?DOC(
     " Joins a list of bit arrays into a single bytes tree.\n"
     "\n"
@@ -155,7 +155,7 @@ concat_bit_arrays(Bits) ->
     _pipe@1 = gleam@list:map(_pipe, fun from_bit_array/1),
     gleam_stdlib:identity(_pipe@1).
 
--file("src/gleam/bytes_tree.gleam", 128).
+-file("src/gleam/bytes_tree.gleam", 131).
 ?DOC(
     " Creates a new bytes tree from a string tree.\n"
     "\n"
@@ -166,7 +166,7 @@ concat_bit_arrays(Bits) ->
 from_string_tree(Tree) ->
     gleam_stdlib:wrap_list(Tree).
 
--file("src/gleam/bytes_tree.gleam", 162).
+-file("src/gleam/bytes_tree.gleam", 165).
 -spec to_list(list(list(bytes_tree())), list(bitstring())) -> list(bitstring()).
 to_list(Stack, Acc) ->
     case Stack of
@@ -187,7 +187,7 @@ to_list(Stack, Acc) ->
             to_list([Trees, Rest@2 | Remaining_stack@3], Acc)
     end.
 
--file("src/gleam/bytes_tree.gleam", 155).
+-file("src/gleam/bytes_tree.gleam", 158).
 ?DOC(
     " Turns a bytes tree into a bit array.\n"
     "\n"
@@ -200,7 +200,7 @@ to_list(Stack, Acc) ->
 to_bit_array(Tree) ->
     erlang:list_to_bitstring(Tree).
 
--file("src/gleam/bytes_tree.gleam", 186).
+-file("src/gleam/bytes_tree.gleam", 192).
 ?DOC(
     " Returns the size of the bytes tree's content in bytes.\n"
     "\n"

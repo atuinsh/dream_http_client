@@ -1,149 +1,75 @@
-//// Type-safe HTTP client with streaming support
+//// Type-safe HTTP client with recording + streaming support
 ////
-//// Gleam doesn't have a built-in HTTPS client, so this module wraps Erlang's battle-hardened
-//// `httpc`. Use this for calling external APIs, downloading files, streaming AI responses,
-//// or building OTP-compatible services with concurrent HTTP streams.
+//// Gleam doesn't ship with an HTTPS client, so this module wraps Erlang's
+//// battle‑hardened `httpc` and adds a friendly builder API, streaming helpers,
+//// and optional record/playback via `dream_http_client/recorder`.
 ////
-//// ## Quick Example - Blocking Request
+//// ## Quick Example — blocking request
 ////
 //// ```gleam
-//// import dream_http_client/client.{host, path, add_header, send}
+//// import dream_http_client/client.{add_header, host, path, send}
 ////
-//// pub fn call_api() {
-////   let result = client.new
-////     |> host("api.example.com")
-////     |> path("/users/123")
-////     |> add_header("Authorization", "Bearer " <> token)
-////     |> send()
-////
-////   case result {
-////     Ok(body) -> decode_json(body)
-////     Error(msg) -> handle_error(msg)
-////   }
+//// pub fn call_api(token: String) -> Result(String, String) {
+////   client.new()
+////   |> host("api.example.com")
+////   |> path("/users/123")
+////   |> add_header("Authorization", "Bearer " <> token)
+////   |> send()
 //// }
 //// ```
 ////
-//// ## Execution Modes
+//// ## Execution modes
 ////
-//// This module provides three ways to execute HTTP requests:
+//// You can execute the same `ClientRequest` in three ways:
 ////
-//// ### 1. Blocking - `client.send()`
+//// - **Blocking**: `send()` returns the full response body.
+//// - **Pull streaming**: `stream_yielder()` returns a `yielder.Yielder` of chunks.
+//// - **Callback streaming**: `start_stream()` spawns a stream process and calls
+////   your callbacks (`on_stream_*`) as events arrive.
 ////
-//// Get the complete response at once. Perfect for:
-//// - JSON API calls
-//// - Small files or documents
-//// - Any case where you need the full response before processing
+//// The “right” choice is mostly about concurrency:
 ////
-//// ### 2. Yielder Streaming - `client.stream_yielder()`
+//// - Use `send()` for normal JSON APIs.
+//// - Use `stream_yielder()` for scripts/one‑offs where blocking is fine.
+//// - Use `start_stream()` when you need non‑blocking streaming in OTP code.
 ////
-//// Get a `yielder.Yielder` that produces chunks sequentially. Perfect for:
-//// - AI/LLM inference endpoints (streaming tokens)
-//// - Simple file downloads
-//// - Scripts or one-off operations
+//// ## Recording and playback
 ////
-//// **Note:** This is a pull-based synchronous API. It blocks the calling process
-//// while waiting for chunks, making it unsuitable for OTP actors that need to
-//// handle multiple concurrent operations.
+//// Attach a recorder with `recorder()` to record real HTTP traffic to disk, or
+//// to play back recordings without network calls. All three execution modes
+//// (`send()`, `stream_yielder()`, `start_stream()`) fully support both
+//// recording and playback.
 ////
 //// ```gleam
-//// import dream_http_client/client.{host, path, stream_yielder}
-//// import gleam/yielder.{each}
-//// import gleam/bytes_tree.{to_string}
-//// import gleam/io.{print, println_error}
+//// import dream_http_client/client.{host, path, recorder, send}
+//// import dream_http_client/recorder.{directory, mode, start}
 ////
-//// client.new
-//// |> host("api.openai.com")
-//// |> path("/v1/chat/completions")
-//// |> stream_yielder()
-//// |> each(fn(result) {
-////   case result {
-////     Ok(chunk) -> print(to_string(chunk))
-////     Error(reason) -> println_error("Stream error: " <> reason)
-////   }
-//// })
+//// let assert Ok(rec) =
+////   recorder.new()
+////   |> directory("mocks/api")
+////   |> mode("record")
+////   |> start()
+////
+//// let assert Ok(body) =
+////   client.new()
+////   |> host("api.example.com")
+////   |> path("/users/123")
+////   |> recorder(rec)
+////   |> send()
 //// ```
 ////
-//// ### 3. Message-Based Streaming - `client.stream_messages()`
+//// ## Inspecting requests
 ////
-//// Get messages sent to your process mailbox. Perfect for:
-//// - OTP actors handling multiple concurrent streams
-//// - Long-lived connections that need cancellation
-//// - Integration with OTP supervisors and selectors
-////
-//// This is a push-based asynchronous API fully compatible with OTP patterns.
+//// `ClientRequest` is opaque to keep the public API stable; use the `get_*`
+//// functions for logging/testing.
 ////
 //// ```gleam
-//// import dream_http_client/client.{
-////   type StreamMessage, Chunk, StreamEnd, StreamError, StreamStart,
-////   select_stream_messages
-//// }
-//// import gleam/otp/actor.{continue}
-//// import gleam/erlang/process.{new_selector}
-////
-//// pub type Message {
-////   HttpStream(StreamMessage)
-//// }
-////
-//// fn init_selector() {
-////   new_selector()
-////   |> select_stream_messages(HttpStream)
-//// }
-////
-//// fn handle_message(msg: Message, state: State) {
-////   case msg {
-////     HttpStream(Chunk(req_id, data)) -> process_chunk(data, state)
-////     HttpStream(StreamEnd(req_id, _)) -> cleanup(req_id, state)
-////     HttpStream(StreamError(req_id, reason)) -> handle_error(req_id, reason, state)
-////     HttpStream(StreamStart(_, _)) -> continue(state)
-////     HttpStream(DecodeError(reason)) -> {
-////       // FFI corruption - report as bug
-////       log_critical_error("DecodeError: " <> reason)
-////       continue(state)
-////     }
-////   }
-//// }
-//// ```
-////
-//// ## Configuration
-////
-//// All execution modes support the same builder pattern for configuration:
-//// - **Timeouts**: Use `timeout()` to set request timeout (default: 30 seconds)
-//// - **Headers**: Use `add_header()` for incremental or `headers()` for batch
-//// - **Method/Path/Query**: Standard HTTP request components
-////
-//// Example with timeout:
-////
-//// ```gleam
-//// import dream_http_client/client.{host, timeout, send}
-////
-//// client.new
-//// |> host("slow-api.example.com")
-//// |> timeout(60_000)  // 60 second timeout
-//// |> send()
-//// ```
-////
-//// ## Inspecting Requests
-////
-//// The `ClientRequest` type is opaque to ensure API stability. Use getter functions
-//// to inspect request properties for logging, testing, or middleware:
-////
-//// ```gleam
-//// import dream_http_client/client
+//// import dream_http_client/client.{get_host, get_path, host, path}
 //// import gleam/io
 ////
-//// let req = client.new
-////   |> client.host("api.example.com")
-////   |> client.path("/users/123")
-////
-//// // Inspect the request before sending
-//// io.println("Calling: " <> client.get_host(req) <> client.get_path(req))
-//// // Prints: "Calling: api.example.com/users/123"
-////
-//// let result = client.send(req)
+//// let req = client.new() |> host("api.example.com") |> path("/users/123")
+//// io.println("Calling: " <> get_host(req) <> get_path(req))
 //// ```
-////
-//// Available getters: `get_method`, `get_scheme`, `get_host`, `get_port`, `get_path`,
-//// `get_query`, `get_headers`, `get_body`, `get_timeout`, `get_recorder`
 
 import dream_http_client/internal
 import dream_http_client/recorder
@@ -197,13 +123,77 @@ pub type Header {
   Header(name: String, value: String)
 }
 
+/// Complete HTTP response with status code, headers, and body.
+///
+/// Returned by `send()` for successful HTTP responses (status < 400).
+/// Also available inside `ResponseError` for HTTP error responses (status >= 400).
+///
+/// ## Fields
+///
+/// - `status`: HTTP status code (e.g. 200, 301, 404, 500)
+/// - `headers`: Response headers as `List(Header)` — includes Content-Type,
+///   Content-Length, Set-Cookie, and any other headers the server sent
+/// - `body`: Complete response body as a UTF-8 string
+///
+/// ## Example
+///
+/// ```gleam
+/// case client.send(request) {
+///   Ok(HttpResponse(status: 200, headers: headers, body: body)) ->
+///     process_success(headers, body)
+///   Ok(HttpResponse(status: status, body: body, ..)) ->
+///     handle_redirect(status, body)
+///   Error(_) -> handle_error()
+/// }
+/// ```
+pub type HttpResponse {
+  HttpResponse(status: Int, headers: List(Header), body: String)
+}
+
+/// Error types returned by `send()`.
+///
+/// ## Variants
+///
+/// - `ResponseError(response: HttpResponse)` — the server responded with a
+///   4xx or 5xx status code. The full `HttpResponse` is available with status,
+///   headers, and body. The body typically contains error details (e.g. JSON
+///   error messages from an API, or HTML error pages).
+///
+/// - `RequestError(message: String)` — the request could not be completed.
+///   The `message` describes what went wrong. Common causes:
+///   - Connection refused (server not running)
+///   - DNS resolution failure (hostname not found)
+///   - Timeout (server did not respond in time)
+///   - Recorder errors (ambiguous recording match, missing fixture)
+///   - Streaming response found when blocking response expected
+///
+/// ## Example
+///
+/// ```gleam
+/// case client.send(request) {
+///   Ok(response) ->
+///     // Guaranteed status < 400
+///     io.println("Got " <> int.to_string(response.status))
+///   Error(ResponseError(response: response)) ->
+///     // HTTP error — inspect response.status, response.body
+///     io.println("HTTP " <> int.to_string(response.status))
+///   Error(RequestError(message: message)) ->
+///     // Transport failure — no HTTP response at all
+///     io.println("Failed: " <> message)
+/// }
+/// ```
+pub type SendError {
+  ResponseError(response: HttpResponse)
+  RequestError(message: String)
+}
+
 /// HTTP client request configuration
 ///
 /// Represents a complete HTTP request with all its components. Use the builder
 /// pattern with functions like `host()`, `path()`, `method()`, etc. to configure
-/// the request, then execute it with `send/1`, `stream_yielder/1`, or
-/// `stream_messages/1` depending on whether you want a blocking, yielder-based,
-/// or message-based streaming API.
+/// the request, then execute it with `send()`, `stream_yielder()`, or
+/// `start_stream()` depending on whether you want a
+/// blocking, pull-streaming, or callback-streaming API.
 ///
 /// ## Fields
 ///
@@ -257,30 +247,32 @@ pub opaque type ClientRequest {
 /// ## Example
 ///
 /// ```gleam
-/// import dream_http_client/client.{host, path, method}
+/// import dream_http_client/client.{host, method, new, path}
 /// import gleam/http.{Get}
 ///
-/// client.new
+/// new()
 /// |> host("api.example.com")
 /// |> path("/users/123")
 /// |> method(Get)
 /// ```
-pub const new = ClientRequest(
-  method: http.Get,
-  scheme: http.Https,
-  host: "localhost",
-  port: None,
-  path: "",
-  query: None,
-  headers: [],
-  body: "",
-  timeout: None,
-  recorder: None,
-  on_stream_start: None,
-  on_stream_chunk: None,
-  on_stream_end: None,
-  on_stream_error: None,
-)
+pub fn new() -> ClientRequest {
+  ClientRequest(
+    method: http.Get,
+    scheme: http.Https,
+    host: "localhost",
+    port: None,
+    path: "",
+    query: None,
+    headers: [],
+    body: "",
+    timeout: None,
+    recorder: None,
+    on_stream_start: None,
+    on_stream_chunk: None,
+    on_stream_end: None,
+    on_stream_error: None,
+  )
+}
 
 /// Set the HTTP method for the request
 ///
@@ -301,7 +293,7 @@ pub const new = ClientRequest(
 /// import dream_http_client/client
 /// import gleam/http
 ///
-/// client.new
+/// client.new()
 /// |> client.method(http.Post)
 /// ```
 pub fn method(
@@ -330,7 +322,7 @@ pub fn method(
 /// import dream_http_client/client
 /// import gleam/http
 ///
-/// client.new
+/// client.new()
 /// |> client.scheme(http.Http)  // Use HTTP instead of HTTPS
 /// ```
 pub fn scheme(
@@ -358,13 +350,10 @@ pub fn scheme(
 /// ```gleam
 /// import dream_http_client/client
 ///
-/// client.new
+/// client.new()
 /// |> client.host("api.example.com")
 /// ```
-pub fn host(
-  client_request: ClientRequest,
-  host_value: String,
-) -> ClientRequest {
+pub fn host(client_request: ClientRequest, host_value: String) -> ClientRequest {
   ClientRequest(..client_request, host: host_value)
 }
 
@@ -387,7 +376,7 @@ pub fn host(
 /// ```gleam
 /// import dream_http_client/client
 ///
-/// client.new
+/// client.new()
 /// |> client.host("localhost")
 /// |> client.port(3000)  // Use port 3000 instead of default
 /// ```
@@ -413,13 +402,10 @@ pub fn port(client_request: ClientRequest, port_value: Int) -> ClientRequest {
 /// ```gleam
 /// import dream_http_client/client
 ///
-/// client.new
+/// client.new()
 /// |> client.path("/api/users/123")
 /// ```
-pub fn path(
-  client_request: ClientRequest,
-  path_value: String,
-) -> ClientRequest {
+pub fn path(client_request: ClientRequest, path_value: String) -> ClientRequest {
   ClientRequest(..client_request, path: path_value)
 }
 
@@ -441,7 +427,7 @@ pub fn path(
 /// ```gleam
 /// import dream_http_client/client
 ///
-/// client.new
+/// client.new()
 /// |> client.path("/api/users")
 /// |> client.query("page=1&limit=10")
 /// ```
@@ -471,7 +457,7 @@ pub fn query(
 /// ```gleam
 /// import dream_http_client/client
 ///
-/// client.new
+/// client.new()
 /// |> client.headers([
 ///   #("Authorization", "Bearer " <> token),
 ///   #("Content-Type", "application/json"),
@@ -509,14 +495,11 @@ pub fn headers(
 ///   #("email", json.string("alice@example.com")),
 /// ])
 ///
-/// client.new
+/// client.new()
 /// |> client.method(http.Post)
 /// |> client.body(json.to_string(json_body))
 /// ```
-pub fn body(
-  client_request: ClientRequest,
-  body_value: String,
-) -> ClientRequest {
+pub fn body(client_request: ClientRequest, body_value: String) -> ClientRequest {
   ClientRequest(..client_request, body: body_value)
 }
 
@@ -538,16 +521,16 @@ pub fn body(
 ///
 /// ```gleam
 /// import dream_http_client/client
-/// import dream_http_client/recorder
+/// import dream_http_client/client.{host, recorder}
+/// import dream_http_client/recorder.{directory, mode, start}
 ///
-/// let assert Ok(rec) = recorder.start(
-///   mode: recorder.Record(directory: "mocks"),
-///   matching: recorder.match_url_only(),
-/// )
+/// let assert Ok(rec) =
+///   recorder.new()
+///   |> directory("mocks")
+///   |> mode("record")
+///   |> start()
 ///
-/// client.new
-/// |> client.host("api.example.com")
-/// |> client.recorder(rec)
+/// client.new() |> host("api.example.com") |> recorder(rec)
 /// ```
 pub fn recorder(
   client_request: ClientRequest,
@@ -570,14 +553,11 @@ pub fn recorder(
 /// ```gleam
 /// import dream_http_client/client.{host, timeout}
 ///
-/// client.new
+/// client.new()
 /// |> host("slow-api.example.com")
 /// |> timeout(60_000)  // 60 second timeout
 /// ```
-pub fn timeout(
-  client_request: ClientRequest,
-  timeout_ms: Int,
-) -> ClientRequest {
+pub fn timeout(client_request: ClientRequest, timeout_ms: Int) -> ClientRequest {
   ClientRequest(..client_request, timeout: option.Some(timeout_ms))
 }
 
@@ -594,7 +574,7 @@ pub fn timeout(
 /// ## Example
 ///
 /// ```gleam
-/// client.new
+/// client.new()
 /// |> client.host("api.example.com")
 /// |> client.on_stream_start(fn(headers) {
 ///   io.println("Stream started with " <> int.to_string(list.length(headers)) <> " headers")
@@ -621,7 +601,7 @@ pub fn on_stream_start(
 /// ## Example
 ///
 /// ```gleam
-/// client.new
+/// client.new()
 /// |> client.host("api.openai.com")
 /// |> client.on_stream_chunk(fn(data) {
 ///   let text = bytes_tree.from_bit_array(data) |> bytes_tree.to_string
@@ -649,7 +629,7 @@ pub fn on_stream_chunk(
 /// ## Example
 ///
 /// ```gleam
-/// client.new
+/// client.new()
 /// |> client.host("api.example.com")
 /// |> client.on_stream_end(fn(_headers) {
 ///   io.println("Stream completed")
@@ -676,7 +656,7 @@ pub fn on_stream_end(
 /// ## Example
 ///
 /// ```gleam
-/// client.new
+/// client.new()
 /// |> client.host("api.example.com")
 /// |> client.on_stream_error(fn(reason) {
 ///   io.println_error("Stream failed: " <> reason)
@@ -711,7 +691,7 @@ pub fn on_stream_error(
 /// ```gleam
 /// import dream_http_client/client
 ///
-/// client.new
+/// client.new()
 /// |> client.add_header("Authorization", "Bearer " <> token)
 /// |> client.add_header("Content-Type", "application/json")
 /// ```
@@ -740,7 +720,7 @@ pub fn add_header(
 /// import dream_http_client/client
 /// import gleam/http.{Post}
 ///
-/// let req = client.new |> client.method(Post)
+/// let req = client.new() |> client.method(Post)
 /// let method = client.get_method(req)
 /// // method == Post
 /// ```
@@ -758,7 +738,7 @@ pub fn get_method(client_request: ClientRequest) -> http.Method {
 /// import dream_http_client/client
 /// import gleam/http.{Http}
 ///
-/// let req = client.new |> client.scheme(Http)
+/// let req = client.new() |> client.scheme(Http)
 /// let scheme = client.get_scheme(req)
 /// // scheme == Http
 /// ```
@@ -775,7 +755,7 @@ pub fn get_scheme(client_request: ClientRequest) -> http.Scheme {
 /// ```gleam
 /// import dream_http_client/client
 ///
-/// let req = client.new |> client.host("api.example.com")
+/// let req = client.new() |> client.host("api.example.com")
 /// let host = client.get_host(req)
 /// // host == "api.example.com"
 /// ```
@@ -793,7 +773,7 @@ pub fn get_host(client_request: ClientRequest) -> String {
 /// ```gleam
 /// import dream_http_client/client
 ///
-/// let req = client.new |> client.port(8080)
+/// let req = client.new() |> client.port(8080)
 /// let port = client.get_port(req)
 /// // port == Some(8080)
 /// ```
@@ -810,7 +790,7 @@ pub fn get_port(client_request: ClientRequest) -> Option(Int) {
 /// ```gleam
 /// import dream_http_client/client
 ///
-/// let req = client.new |> client.path("/api/users")
+/// let req = client.new() |> client.path("/api/users")
 /// let path = client.get_path(req)
 /// // path == "/api/users"
 /// ```
@@ -827,7 +807,7 @@ pub fn get_path(client_request: ClientRequest) -> String {
 /// ```gleam
 /// import dream_http_client/client
 ///
-/// let req = client.new |> client.query("page=1&limit=10")
+/// let req = client.new() |> client.query("page=1&limit=10")
 /// let query = client.get_query(req)
 /// // query == Some("page=1&limit=10")
 /// ```
@@ -844,7 +824,7 @@ pub fn get_query(client_request: ClientRequest) -> Option(String) {
 /// ```gleam
 /// import dream_http_client/client
 ///
-/// let req = client.new
+/// let req = client.new()
 ///   |> client.add_header("Authorization", "Bearer token")
 ///   |> client.add_header("Content-Type", "application/json")
 /// let headers = client.get_headers(req)
@@ -863,7 +843,7 @@ pub fn get_headers(client_request: ClientRequest) -> List(Header) {
 /// ```gleam
 /// import dream_http_client/client
 ///
-/// let req = client.new |> client.body("{\"name\": \"Alice\"}")
+/// let req = client.new() |> client.body("{\"name\": \"Alice\"}")
 /// let body = client.get_body(req)
 /// // body == "{\"name\": \"Alice\"}"
 /// ```
@@ -881,7 +861,7 @@ pub fn get_body(client_request: ClientRequest) -> String {
 /// ```gleam
 /// import dream_http_client/client
 ///
-/// let req = client.new |> client.timeout(5000)
+/// let req = client.new() |> client.timeout(5000)
 /// let timeout = client.get_timeout(req)
 /// // timeout == Some(5000)
 /// ```
@@ -897,20 +877,18 @@ pub fn get_timeout(client_request: ClientRequest) -> Option(Int) {
 ///
 /// ```gleam
 /// import dream_http_client/client
-/// import dream_http_client/recorder
-/// import dream_http_client/matching
+/// import dream_http_client/recorder.{directory, mode, start}
 ///
-/// let assert Ok(rec) = recorder.start(
-///   mode: recorder.Record(directory: "mocks"),
-///   matching: matching.match_url_only(),
-/// )
-/// let req = client.new |> client.recorder(rec)
+/// let assert Ok(rec) =
+///   recorder.new()
+///   |> directory("mocks")
+///   |> mode("record")
+///   |> start()
+/// let req = client.new() |> client.recorder(rec)
 /// let recorder_opt = client.get_recorder(req)
 /// // recorder_opt == Some(rec)
 /// ```
-pub fn get_recorder(
-  client_request: ClientRequest,
-) -> Option(recorder.Recorder) {
+pub fn get_recorder(client_request: ClientRequest) -> Option(recorder.Recorder) {
   client_request.recorder
 }
 
@@ -918,37 +896,23 @@ pub fn get_recorder(
 // Message-Based Streaming Types
 // ============================================================================
 
-/// Opaque request identifier for message-based streaming
+/// Opaque request identifier for internal streaming
 ///
-/// A unique identifier for an active HTTP stream started with `stream_messages()`.
-/// This identifier is included in all `StreamMessage` variants to allow handling
-/// multiple concurrent streams in a single actor process.
+/// A unique identifier for an active HTTP stream. You will usually only see
+/// a `RequestId` inside `StreamMessage` values processed by the stream process
+/// created by `start_stream()`, or when using the low-level `cancel_stream()`.
 ///
 /// ## Usage
 ///
-/// When handling multiple concurrent streams, use the `RequestId` to:
-/// - Track which stream a message belongs to
-/// - Associate chunks with the correct request
-/// - Cancel specific streams with `cancel_stream()`
-/// - Maintain per-stream state in your actor
+/// Most users never need to construct or store `RequestId`. Prefer controlling
+/// streams via `StreamHandle` (`cancel_stream_handle`, `is_stream_active`,
+/// `await_stream`).
 ///
 /// ## Examples
 ///
 /// ```gleam
-/// // Start multiple streams
-/// let assert Ok(req_id_1) = client.new |> client.host("api.com") |> client.path("/stream/1") |> client.stream_messages()
-/// let assert Ok(req_id_2) = client.new |> client.host("api.com") |> client.path("/stream/2") |> client.stream_messages()
-///
-/// // Messages include RequestId to distinguish them
-/// case message {
-///   client.Chunk(id, data) -> {
-///     if id == req_id_1 {
-///       process_stream_1(data)
-///     } else if id == req_id_2 {
-///       process_stream_2(data)
-///     }
-///   }
-/// }
+/// // RequestIds are returned by internal streaming machinery.
+/// // Prefer StreamHandle for user code.
 /// ```
 ///
 /// ## Notes
@@ -960,10 +924,10 @@ pub opaque type RequestId {
   RequestId(id: String)
 }
 
-/// Stream message types sent to your process mailbox
+/// Stream message types emitted by internal streaming machinery
 ///
-/// When using `stream_messages()`, httpc sends these messages directly to your
-/// process. Use `select_stream_messages()` to integrate with OTP selectors.
+/// `start_stream()` runs a stream loop in a dedicated process; that process
+/// receives and decodes httpc messages into these variants.
 ///
 /// ## Message Flow
 ///
@@ -982,7 +946,7 @@ pub opaque type RequestId {
 /// - A bug in this library's FFI code
 ///
 /// **What to do:** If you see a `DecodeError`, please report it as a bug at
-/// https://github.com/maxdeviant/dream/issues with the full error message.
+/// https://github.com/TrustBound/dream/issues with the full error message.
 /// The error message includes debug information to help diagnose the issue.
 ///
 /// Unlike `StreamError` which has a `RequestId`, `DecodeError` does not because
@@ -1048,14 +1012,21 @@ pub opaque type StreamHandle {
 /// Make a blocking HTTP request and get the complete response
 ///
 /// Sends an HTTP request and collects all response chunks, returning the
-/// complete response body as a string. This is ideal for:
+/// complete response with status code, headers, and body. This is ideal for:
 ///
 /// - JSON API responses
 /// - Small files or documents
 /// - Any case where you need the full response before processing
 ///
-/// For large responses or when you need OTP compatibility, use
-/// `stream_yielder()` or `stream_messages()` instead.
+/// For large responses or when you need non-blocking streaming, use
+/// `stream_yielder()` or `start_stream()` instead.
+///
+/// ## Recording and Playback
+///
+/// When a recorder is attached (via `recorder()`), this function fully supports
+/// both recording and playback. In record mode, the real response is persisted
+/// to disk. In playback mode, the recorded response is returned without making
+/// a network call.
 ///
 /// ## Parameters
 ///
@@ -1063,33 +1034,39 @@ pub opaque type StreamHandle {
 ///
 /// ## Returns
 ///
-/// - `Ok(String)`: The complete response body as a string
-/// - `Error(String)`: An error message if the request failed
+/// - `Ok(HttpResponse)`: Successful response (status < 400) with status, headers, and body
+/// - `Error(ResponseError(response))`: HTTP error response (status >= 400) with full response
+/// - `Error(RequestError(message))`: Connection failure, timeout, or other transport error
 ///
 /// ## Example
 ///
 /// ```gleam
-/// import dream_http_client/client.{host, path, add_header, send}
-/// import gleam/json.{decode}
+/// import dream_http_client/client.{
+///   HttpResponse, RequestError, ResponseError,
+///   host, path, add_header, send,
+/// }
 ///
-/// let result = client.new
+/// let result = client.new()
 ///   |> host("api.example.com")
 ///   |> path("/users/123")
 ///   |> add_header("Authorization", "Bearer " <> token)
 ///   |> send()
 ///
 /// case result {
-///   Ok(body) -> {
-///     case decode(body, user_decoder) {
+///   Ok(HttpResponse(body: body, ..)) -> {
+///     case json.decode(body, user_decoder) {
 ///       Ok(user) -> Ok(user)
 ///       Error(json_error) ->
-///         Error("Invalid JSON response: " <> string.inspect(json_error))
+///         Error("Invalid JSON: " <> string.inspect(json_error))
 ///     }
 ///   }
-///   Error(error_message) -> Error("Request failed: " <> error_message)
+///   Error(ResponseError(response)) ->
+///     Error("HTTP " <> int.to_string(response.status) <> ": " <> response.body)
+///   Error(RequestError(message)) ->
+///     Error("Request failed: " <> message)
 /// }
 /// ```
-pub fn send(client_request: ClientRequest) -> Result(String, String) {
+pub fn send(client_request: ClientRequest) -> Result(HttpResponse, SendError) {
   case client_request.recorder {
     option.Some(recorder_instance) ->
       send_with_recorder(client_request, recorder_instance)
@@ -1099,33 +1076,35 @@ pub fn send(client_request: ClientRequest) -> Result(String, String) {
 
 fn send_without_recorder(
   client_request: ClientRequest,
-) -> Result(String, String) {
+) -> Result(HttpResponse, SendError) {
   send_client_request_to_httpc(client_request)
 }
 
 fn send_with_recorder(
   client_request: ClientRequest,
   recorder_instance: recorder.Recorder,
-) -> Result(String, String) {
+) -> Result(HttpResponse, SendError) {
   let recorded_request = client_request_to_recorded_request(client_request)
 
   case recorder.find_recording(recorder_instance, recorded_request) {
-    option.Some(recording.Recording(_, response)) ->
+    Ok(option.Some(recording.Recording(_, response))) ->
       handle_recorded_blocking_response(response)
-    option.None ->
+    Ok(option.None) ->
       send_and_maybe_record(client_request, recorder_instance, recorded_request)
+    Error(reason) -> Error(RequestError(message: reason))
   }
 }
 
 fn handle_recorded_blocking_response(
   response: recording.RecordedResponse,
-) -> Result(String, String) {
+) -> Result(HttpResponse, SendError) {
   case response {
-    recording.BlockingResponse(_, _, body) -> Ok(body)
+    recording.BlockingResponse(status, headers, body) ->
+      response_result(status, headers, body)
     recording.StreamingResponse(_, _, _) ->
-      Error(
-        "Recording contains streaming response, use stream_yielder() instead",
-      )
+      Error(RequestError(
+        message: "Recording contains streaming response, use stream_yielder() instead",
+      ))
   }
 }
 
@@ -1133,39 +1112,44 @@ fn send_and_maybe_record(
   client_request: ClientRequest,
   recorder_instance: recorder.Recorder,
   recorded_request: recording.RecordedRequest,
-) -> Result(String, String) {
-  case send_client_request_to_httpc(client_request) {
-    Ok(body) -> {
-      record_blocking_response_if_needed(
+) -> Result(HttpResponse, SendError) {
+  case send_client_request_to_httpc_with_meta(client_request) {
+    Ok(#(status, headers, body)) -> {
+      let recorded_response =
+        recording.BlockingResponse(status: status, headers: headers, body: body)
+      let response_for_recording = case
+        recorder.is_record_mode(recorder_instance)
+      {
+        True ->
+          recorder.transform_response(
+            recorder_instance,
+            recorded_request,
+            recorded_response,
+          )
+        False -> recorded_response
+      }
+
+      record_response_if_needed(
         recorder_instance,
         recorded_request,
-        body,
+        response_for_recording,
       )
-      Ok(body)
+
+      response_result(status, headers, body)
     }
-    Error(error_message) -> Error(error_message)
+    Error(error_message) -> Error(RequestError(message: error_message))
   }
 }
 
-fn record_blocking_response_if_needed(
+fn record_response_if_needed(
   recorder_instance: recorder.Recorder,
   recorded_request: recording.RecordedRequest,
-  body: String,
+  response: recording.RecordedResponse,
 ) -> Nil {
   case recorder.is_record_mode(recorder_instance) {
     True -> {
-      let recorded_response =
-        recording.BlockingResponse(
-          status: 200,
-          // TODO: get actual status from response
-          headers: [],
-          body: body,
-        )
       let recorder_entry =
-        recording.Recording(
-          request: recorded_request,
-          response: recorded_response,
-        )
+        recording.Recording(request: recorded_request, response: response)
       recorder.add_recording(recorder_instance, recorder_entry)
     }
     False -> Nil
@@ -1174,7 +1158,16 @@ fn record_blocking_response_if_needed(
 
 fn send_client_request_to_httpc(
   client_request: ClientRequest,
-) -> Result(String, String) {
+) -> Result(HttpResponse, SendError) {
+  case send_client_request_to_httpc_with_meta(client_request) {
+    Ok(#(status, headers, body)) -> response_result(status, headers, body)
+    Error(error_message) -> Error(RequestError(message: error_message))
+  }
+}
+
+fn send_client_request_to_httpc_with_meta(
+  client_request: ClientRequest,
+) -> Result(#(Int, List(#(String, String)), String), String) {
   let http_request = to_http_request(client_request)
   let url = build_url(http_request)
   let method_atom = internal.atomize_method(http_request.method)
@@ -1185,10 +1178,11 @@ fn send_client_request_to_httpc(
   case
     send_sync(method_dynamic, url, http_request.headers, body, timeout_value)
   {
-    Ok(response_body) -> {
+    Ok(#(status, headers, response_body)) -> {
       response_body
       |> bit_array.to_string
       |> result.map_error(convert_string_error)
+      |> result.map(fn(body_str) { #(status, headers, body_str) })
     }
     Error(error_message) -> Error(error_message)
   }
@@ -1229,114 +1223,7 @@ fn send_sync(
   headers: List(#(String, String)),
   body: BitArray,
   timeout_ms: Int,
-) -> Result(BitArray, String)
-
-/// Send an HTTP request and return the response status and body
-///
-/// Like `send`, but preserves the response status code instead of
-/// discarding it. Recorder-aware: a recorded blocking response replays
-/// with its stored status, and record mode stores the actual status
-/// (unlike `send`'s recordings, which assume 200).
-pub fn send_with_status(
-  client_request: ClientRequest,
-) -> Result(#(Int, String), String) {
-  case client_request.recorder {
-    option.Some(recorder_instance) ->
-      send_with_status_recorder(client_request, recorder_instance)
-    option.None -> send_with_status_to_httpc(client_request)
-  }
-}
-
-fn send_with_status_recorder(
-  client_request: ClientRequest,
-  recorder_instance: recorder.Recorder,
-) -> Result(#(Int, String), String) {
-  let recorded_request = client_request_to_recorded_request(client_request)
-
-  case recorder.find_recording(recorder_instance, recorded_request) {
-    option.Some(recording.Recording(
-      _,
-      recording.BlockingResponse(status, _, body),
-    )) -> Ok(#(status, body))
-    option.Some(recording.Recording(_, recording.StreamingResponse(_, _, _))) ->
-      Error(
-        "Recording contains streaming response, use stream_yielder() instead",
-      )
-    option.None ->
-      case send_with_status_to_httpc(client_request) {
-        Ok(#(status, body)) -> {
-          record_status_response_if_needed(
-            recorder_instance,
-            recorded_request,
-            status,
-            body,
-          )
-          Ok(#(status, body))
-        }
-        Error(error_message) -> Error(error_message)
-      }
-  }
-}
-
-fn record_status_response_if_needed(
-  recorder_instance: recorder.Recorder,
-  recorded_request: recording.RecordedRequest,
-  status: Int,
-  body: String,
-) -> Nil {
-  case recorder.is_record_mode(recorder_instance) {
-    True ->
-      recorder.add_recording(
-        recorder_instance,
-        recording.Recording(
-          request: recorded_request,
-          response: recording.BlockingResponse(
-            status: status,
-            headers: [],
-            body: body,
-          ),
-        ),
-      )
-    False -> Nil
-  }
-}
-
-fn send_with_status_to_httpc(
-  client_request: ClientRequest,
-) -> Result(#(Int, String), String) {
-  let http_request = to_http_request(client_request)
-  let url = build_url(http_request)
-  let method_atom = internal.atomize_method(http_request.method)
-  let method_dynamic = atom.to_dynamic(method_atom)
-  let body = <<http_request.body:utf8>>
-  let timeout_value = resolve_timeout(client_request)
-
-  case
-    send_sync_response(
-      method_dynamic,
-      url,
-      http_request.headers,
-      body,
-      timeout_value,
-    )
-  {
-    Ok(#(status, response_body)) ->
-      response_body
-      |> bit_array.to_string
-      |> result.map_error(convert_string_error)
-      |> result.map(fn(text) { #(status, text) })
-    Error(error_message) -> Error(error_message)
-  }
-}
-
-@external(erlang, "dream_httpc_shim", "request_sync_response")
-fn send_sync_response(
-  method: d.Dynamic,
-  url: String,
-  headers: List(#(String, String)),
-  body: BitArray,
-  timeout_ms: Int,
-) -> Result(#(Int, BitArray), String)
+) -> Result(#(Int, List(#(String, String)), BitArray), String)
 
 /// Stream HTTP response chunks using a yielder
 ///
@@ -1349,7 +1236,20 @@ fn send_sync_response(
 /// - Simple file downloads
 /// - Scripts or one-off operations
 ///
-/// **For OTP actors with concurrency, use `stream_messages()` instead.**
+/// **For OTP actors with concurrency, use `start_stream()` instead.**
+///
+/// ## Recording and Playback
+///
+/// When a recorder is attached (via `recorder()`), this function fully supports
+/// both recording and playback:
+///
+/// - **Record mode**: Streams from the real server and records chunks to disk,
+///   capturing timing information between chunks for realistic replay.
+/// - **Playback mode**: Yields recorded chunks from the fixture file. No network
+///   calls are made.
+///
+/// The same `StreamingResponse` fixture format is shared with `start_stream()`,
+/// so recordings made with either function can be played back by both.
 ///
 /// ## Error Semantics
 ///
@@ -1387,7 +1287,7 @@ fn send_sync_response(
 /// import gleam/bytes_tree.{to_string}
 /// import gleam/io.{print, println_error}
 ///
-/// client.new
+/// client.new()
 ///   |> host("api.openai.com")
 ///   |> path("/v1/chat/completions")
 ///   |> stream_yielder()
@@ -1413,7 +1313,7 @@ fn send_sync_response(
 ///
 /// // The stream automatically completes when done - no need to use take()!
 /// let chunks = 
-///   client.new
+///   client.new()
 ///   |> host("example.com")
 ///   |> path("/data")
 ///   |> stream_yielder()
@@ -1450,9 +1350,10 @@ fn stream_yielder_with_recorder(
   let recorded_request = client_request_to_recorded_request(client_request)
 
   case recorder.find_recording(recorder_instance, recorded_request) {
-    option.Some(recording.Recording(_, response)) ->
+    Ok(option.Some(recording.Recording(_, response))) ->
       create_yielder_from_recorded_response(response)
-    option.None -> create_stream_yielder_from_client_request(client_request)
+    Ok(option.None) -> create_stream_yielder_from_client_request(client_request)
+    Error(reason) -> yielder.single(Error(reason))
   }
 }
 
@@ -1505,6 +1406,7 @@ fn stream_yielder_with_record_mode(
           timeout_ms: timeout_value,
           recorder: recorder_instance,
           recorded_request: recorded_request,
+          start_headers: [],
           chunks: [],
           last_chunk_time: None,
         )
@@ -1556,6 +1458,7 @@ type RecordingYielderState {
     timeout_ms: Int,
     recorder: recorder.Recorder,
     recorded_request: recording.RecordedRequest,
+    start_headers: List(#(String, String)),
     chunks: List(recording.Chunk),
     last_chunk_time: Option(Int),
   )
@@ -1589,6 +1492,23 @@ fn headers_to_tuples(headers: List(Header)) -> List(#(String, String)) {
 
 fn tuples_to_headers(tuples: List(#(String, String))) -> List(Header) {
   list.map(tuples, fn(t) { Header(name: t.0, value: t.1) })
+}
+
+fn response_result(
+  status: Int,
+  headers: List(#(String, String)),
+  body: String,
+) -> Result(HttpResponse, SendError) {
+  let response =
+    HttpResponse(
+      status: status,
+      headers: tuples_to_headers(headers),
+      body: body,
+    )
+  case status >= 400 {
+    True -> Error(ResponseError(response: response))
+    False -> Ok(response)
+  }
 }
 
 fn handle_yielder_start_with_state(
@@ -1649,6 +1569,17 @@ fn handle_recording_yielder_start(
   let request_result =
     internal.start_httpc_stream(state.http_req, state.timeout_ms)
   let owner = internal.extract_owner_pid(request_result)
+  let start_headers = case
+    internal.get_stream_start_headers(owner, state.timeout_ms)
+  {
+    Ok(headers) -> headers
+    Error(reason) -> {
+      io.println_error(
+        "Failed to fetch stream_start headers for recording: " <> reason,
+      )
+      []
+    }
+  }
   let now = get_time_ms()
 
   case internal.receive_next(owner, state.timeout_ms) {
@@ -1659,6 +1590,7 @@ fn handle_recording_yielder_start(
         RecordingYielderState(
           ..state,
           owner: Some(owner),
+          start_headers: start_headers,
           chunks: [chunk],
           last_chunk_time: Some(now),
         )
@@ -1666,7 +1598,10 @@ fn handle_recording_yielder_start(
     }
     Ok(option.None) -> {
       // Empty stream - save recording with no chunks
-      save_streaming_recording(state, [])
+      save_streaming_recording(
+        RecordingYielderState(..state, start_headers: start_headers),
+        [],
+      )
       yielder.Done
     }
     Error(error_reason) -> {
@@ -1720,11 +1655,21 @@ fn save_streaming_recording(
   // Reverse chunks to get correct order (we prepended them)
   let ordered_chunks = list.reverse(chunks)
 
+  // httpc only streams body chunks for successful responses (200/206). We
+  // infer 206 if Content-Range is present; otherwise default to 200.
+  let status = case
+    list.any(state.start_headers, fn(h) {
+      string.lowercase(h.0) == "content-range"
+    })
+  {
+    True -> 206
+    False -> 200
+  }
+
   let response =
     recording.StreamingResponse(
-      status: 200,
-      // TODO: capture actual status and headers
-      headers: [],
+      status: status,
+      headers: state.start_headers,
       chunks: ordered_chunks,
     )
 
@@ -1735,9 +1680,10 @@ fn save_streaming_recording(
 }
 
 // Internal: Start a message-based streaming HTTP request
-// Used by start_stream() to initiate the HTTP stream
+// Used by start_stream() to initiate the low-level HTTP stream via httpc.
+// Note: start_stream() already handles playback via maybe_replay_from_recording()
+// before reaching this function. This path is for live HTTP requests only.
 fn stream_messages(client_request: ClientRequest) -> Result(RequestId, String) {
-  // Check for recorder - if in Record mode, check playback first
   case client_request.recorder {
     option.Some(recorder_instance) ->
       stream_messages_with_recorder(client_request, recorder_instance)
@@ -1752,18 +1698,20 @@ fn stream_messages_with_recorder(
   let recorded_request = client_request_to_recorded_request(client_request)
 
   case recorder.find_recording(recorder_instance, recorded_request) {
-    option.Some(_recording) ->
-      // Found recording - message streaming doesn't support playback
-      // because we can't inject messages into user's mailbox
+    Ok(option.Some(_recording)) ->
+      // Safety net: start_stream() replays via maybe_replay_from_recording()
+      // before reaching here. If we land here anyway, it means the low-level
+      // httpc message path cannot replay recordings.
       Error(
-        "Message-based streaming does not support playback mode. Use stream_yielder() instead.",
+        "Unexpected: recording found in stream_messages path. This should have been handled by start_stream() playback.",
       )
-    option.None ->
+    Ok(option.None) ->
       send_stream_messages_to_httpc(
         client_request,
         option.Some(recorder_instance),
         recorded_request,
       )
+    Error(reason) -> Error(reason)
   }
 }
 
@@ -2112,13 +2060,15 @@ fn decode_error_reason(
 ) -> StreamMessage {
   case d.run(reason_dyn, d.string) {
     Ok(reason) -> StreamError(req_id, reason)
-    Error(decode_error) -> {
-      let error_msg =
-        "Stream error (failed to decode error string: "
-        <> string.inspect(decode_error)
-        <> ")"
-      StreamError(req_id, error_msg)
-    }
+    Error(_) ->
+      case d.run(reason_dyn, d.bit_array) {
+        Ok(bytes) ->
+          case bit_array.to_string(bytes) {
+            Ok(s) -> StreamError(req_id, s)
+            Error(_) -> StreamError(req_id, string.inspect(reason_dyn))
+          }
+        Error(_) -> StreamError(req_id, string.inspect(reason_dyn))
+      }
   }
 }
 
@@ -2145,10 +2095,25 @@ fn pair_with_name(value: String, name: String) -> #(String, String) {
 /// Start an HTTP stream with callback handlers
 ///
 /// Spawns a dedicated process to handle HTTP streaming and calls your callbacks
-/// as messages arrive. This is the recommended API for streaming.
+/// as messages arrive. This is the recommended API for streaming in OTP
+/// applications and concurrent contexts.
 ///
 /// Returns a `StreamHandle` immediately (non-blocking). The stream runs in a
 /// separate process, and your callbacks execute in that process.
+///
+/// ## Recording and Playback
+///
+/// When a recorder is attached (via `recorder()`), this function fully supports
+/// both recording and playback:
+///
+/// - **Record mode**: Streams from the real server and records chunks to disk.
+///   The recorded fixture captures each chunk along with timing information.
+/// - **Playback mode**: Replays recorded chunks directly via your callbacks —
+///   `on_stream_start`, `on_stream_chunk`, and `on_stream_end` are called in
+///   sequence with the recorded data. No network calls are made.
+///
+/// The same `StreamingResponse` fixture format is shared with `stream_yielder()`,
+/// so recordings made with either function can be played back by both.
 ///
 /// ## Parameters
 ///
@@ -2162,7 +2127,7 @@ fn pair_with_name(value: String, name: String) -> #(String, String) {
 /// ## Example
 ///
 /// ```gleam
-/// let assert Ok(stream) = client.new
+/// let assert Ok(stream) = client.new()
 ///   |> client.host("api.openai.com")
 ///   |> client.path("/v1/chat/completions")
 ///   |> client.on_stream_chunk(fn(data) {
@@ -2180,42 +2145,97 @@ fn pair_with_name(value: String, name: String) -> #(String, String) {
 /// client.cancel_stream_handle(stream)
 /// ```
 pub fn start_stream(request: ClientRequest) -> Result(StreamHandle, String) {
-  // Ensure ETS tables exist before spawning
-  ensure_ets_tables()
-
-  // Spawn process to handle the stream
   let stream_pid = process.spawn_unlinked(fn() { run_stream_process(request) })
 
   Ok(StreamHandle(pid: stream_pid))
 }
 
-// Ensure all required ETS tables exist
-fn ensure_ets_tables() -> Nil {
-  ensure_recorder_table()
-  ensure_ref_mapping_table_wrapper()
+fn run_stream_process(request: ClientRequest) -> Nil {
+  // Try playback from recording first
+  case maybe_replay_from_recording(request) {
+    True -> Nil
+    False -> {
+      // Build selector for HTTP messages
+      let selector =
+        process.new_selector()
+        |> select_stream_messages(fn(msg) { msg })
+
+      let timeout_ms = resolve_timeout(request)
+
+      // Start the stream using internal API
+      case stream_messages(request) {
+        Error(reason) -> {
+          // Call error callback if set
+          case request.on_stream_error {
+            Some(on_error) -> on_error(reason)
+            None -> Nil
+          }
+        }
+        Ok(req_id) -> {
+          // Process messages until stream completes
+          process_stream_loop(selector, req_id, request, timeout_ms)
+        }
+      }
+    }
+  }
 }
 
-@external(erlang, "dream_httpc_shim", "ensure_ref_mapping_table")
-fn ensure_ref_mapping_table_wrapper() -> Nil
+/// Check if a matching recording exists and replay it via callbacks.
+/// Returns True if playback was handled, False if the caller should
+/// proceed with a real HTTP stream.
+fn maybe_replay_from_recording(request: ClientRequest) -> Bool {
+  case request.recorder {
+    Some(rec) -> {
+      let recorded_request = client_request_to_recorded_request(request)
+      case recorder.find_recording(rec, recorded_request) {
+        Ok(Some(recording.Recording(_, response))) -> {
+          replay_recorded_stream(request, response)
+          True
+        }
+        _ -> False
+      }
+    }
+    None -> False
+  }
+}
 
-fn run_stream_process(request: ClientRequest) -> Nil {
-  // Build selector for HTTP messages
-  let selector =
-    process.new_selector()
-    |> select_stream_messages(fn(msg) { msg })
-
-  // Start the stream using internal API
-  case stream_messages(request) {
-    Error(reason) -> {
-      // Call error callback if set
-      case request.on_stream_error {
-        Some(on_error) -> on_error(reason)
+/// Replay a recorded response by directly invoking the stream callbacks.
+/// Handles both StreamingResponse (multiple chunks) and BlockingResponse
+/// (body delivered as a single chunk).
+fn replay_recorded_stream(
+  request: ClientRequest,
+  response: recording.RecordedResponse,
+) -> Nil {
+  case response {
+    recording.StreamingResponse(_, headers, chunks) -> {
+      case request.on_stream_start {
+        Some(cb) -> cb(list.map(headers, fn(h) { Header(h.0, h.1) }))
+        None -> Nil
+      }
+      list.each(chunks, fn(chunk) {
+        case request.on_stream_chunk {
+          Some(cb) -> cb(chunk.data)
+          None -> Nil
+        }
+      })
+      case request.on_stream_end {
+        Some(cb) -> cb([])
         None -> Nil
       }
     }
-    Ok(req_id) -> {
-      // Process messages until stream completes
-      process_stream_loop(selector, req_id, request)
+    recording.BlockingResponse(_, headers, body) -> {
+      case request.on_stream_start {
+        Some(cb) -> cb(list.map(headers, fn(h) { Header(h.0, h.1) }))
+        None -> Nil
+      }
+      case request.on_stream_chunk {
+        Some(cb) -> cb(<<body:utf8>>)
+        None -> Nil
+      }
+      case request.on_stream_end {
+        Some(cb) -> cb([])
+        None -> Nil
+      }
     }
   }
 }
@@ -2224,10 +2244,11 @@ fn process_stream_loop(
   selector: process.Selector(StreamMessage),
   req_id: RequestId,
   request: ClientRequest,
+  timeout_ms: Int,
 ) -> Nil {
-  case process.selector_receive(selector, 30_000) {
+  case process.selector_receive(selector, timeout_ms) {
     Ok(message) -> {
-      handle_stream_message(message, req_id, request, selector)
+      handle_stream_message(message, req_id, request, selector, timeout_ms)
     }
     Error(Nil) -> {
       // Timeout waiting for messages
@@ -2244,6 +2265,7 @@ fn handle_stream_message(
   req_id: RequestId,
   request: ClientRequest,
   selector: process.Selector(StreamMessage),
+  timeout_ms: Int,
 ) -> Nil {
   case message {
     StreamStart(stream_req_id, headers) -> {
@@ -2253,9 +2275,9 @@ fn handle_stream_message(
             Some(on_start) -> on_start(headers)
             None -> Nil
           }
-          process_stream_loop(selector, req_id, request)
+          process_stream_loop(selector, req_id, request, timeout_ms)
         }
-        False -> process_stream_loop(selector, req_id, request)
+        False -> process_stream_loop(selector, req_id, request, timeout_ms)
       }
     }
 
@@ -2266,9 +2288,9 @@ fn handle_stream_message(
             Some(on_chunk) -> on_chunk(data)
             None -> Nil
           }
-          process_stream_loop(selector, req_id, request)
+          process_stream_loop(selector, req_id, request, timeout_ms)
         }
-        False -> process_stream_loop(selector, req_id, request)
+        False -> process_stream_loop(selector, req_id, request, timeout_ms)
       }
     }
 
@@ -2281,7 +2303,7 @@ fn handle_stream_message(
           }
           Nil
         }
-        False -> process_stream_loop(selector, req_id, request)
+        False -> process_stream_loop(selector, req_id, request, timeout_ms)
       }
     }
 
@@ -2294,7 +2316,7 @@ fn handle_stream_message(
           }
           Nil
         }
-        False -> process_stream_loop(selector, req_id, request)
+        False -> process_stream_loop(selector, req_id, request, timeout_ms)
       }
     }
 
@@ -2375,28 +2397,19 @@ pub fn await_stream(handle: StreamHandle) -> Nil {
 
 /// Cancel an active streaming request (low-level API)
 ///
-/// Cancels an HTTP stream that was started with `stream_messages()`.
-/// After cancellation, no more messages will be sent to your process.
+/// Cancels an HTTP stream given its `RequestId`.
 ///
-/// **Note:** This is a low-level API. Most users should use `start_stream()`
-/// and `cancel_stream_handle()` instead.
+/// **Note:** Most users should use `start_stream()` and `cancel_stream_handle()`
+/// instead. `cancel_stream()` exists primarily to support internal stream
+/// machinery and advanced integrations.
 ///
 /// ## Parameters
 ///
-/// - `request_id`: The request ID returned from `stream_messages()`
+/// - `request_id`: The request ID for an active internal stream
 ///
 /// ## Example
 ///
-/// ```gleam
-/// import dream_http_client/client.{host, stream_messages, cancel_stream}
-///
-/// let assert Ok(req_id) = client.new
-///   |> host("api.example.com")
-///   |> stream_messages()
-///
-/// // Later, cancel the stream
-/// cancel_stream(req_id)
-/// ```
+/// This is typically not called directly unless you already have a `RequestId`.
 pub fn cancel_stream(request_id: RequestId) -> Nil {
   let RequestId(id) = request_id
   internal.cancel_stream_by_string(id)
@@ -2410,6 +2423,7 @@ type MessageStreamRecorderState {
   MessageStreamRecorderState(
     recorder: recorder.Recorder,
     recorded_request: recording.RecordedRequest,
+    headers: List(#(String, String)),
     chunks: List(recording.Chunk),
     last_chunk_time: Option(Int),
   )
@@ -2418,33 +2432,13 @@ type MessageStreamRecorderState {
 // ETS table name for recorder state
 const recorder_table_name = "dream_http_client_stream_recorders"
 
-// Ensure ETS table exists (idempotent)
-fn ensure_recorder_table() -> Nil {
-  case ets_table_exists(recorder_table_name) {
-    True -> Nil
-    False -> {
-      ets_new(recorder_table_name, [
-        atom.create("set"),
-        atom.create("public"),
-        atom.create("named_table"),
-      ])
-      Nil
-    }
-  }
-}
-
-@external(erlang, "dream_httpc_shim", "ets_table_exists")
-fn ets_table_exists(name: String) -> Bool
-
-@external(erlang, "dream_httpc_shim", "ets_new")
-fn ets_new(name: String, options: List(atom.Atom)) -> d.Dynamic
-
 @external(erlang, "dream_httpc_shim", "ets_insert")
 fn ets_insert(
   table: String,
   key: String,
   recorder: recorder.Recorder,
   recorded_request: recording.RecordedRequest,
+  headers: List(#(String, String)),
   chunks: List(recording.Chunk),
   last_chunk_time: Option(Int),
 ) -> Nil
@@ -2460,9 +2454,8 @@ fn store_message_stream_recorder(
   rec: recorder.Recorder,
   recorded_req: recording.RecordedRequest,
 ) -> Nil {
-  ensure_recorder_table()
   let RequestId(id) = request_id
-  ets_insert(recorder_table_name, id, rec, recorded_req, [], None)
+  ets_insert(recorder_table_name, id, rec, recorded_req, [], [], None)
 }
 
 fn get_message_stream_recorder(
@@ -2482,6 +2475,7 @@ fn update_message_stream_recorder(
     id,
     state.recorder,
     state.recorded_request,
+    state.headers,
     state.chunks,
     state.last_chunk_time,
   )
@@ -2509,6 +2503,7 @@ fn record_stream_message(message: StreamMessage) -> Nil {
             MessageStreamRecorderState(
               recorder: state.recorder,
               recorded_request: state.recorded_request,
+              headers: state.headers,
               chunks: [chunk, ..state.chunks],
               last_chunk_time: Some(now),
             )
@@ -2517,10 +2512,18 @@ fn record_stream_message(message: StreamMessage) -> Nil {
         option.None -> Nil
       }
     }
-    StreamEnd(request_id, _headers) -> {
+    StreamEnd(request_id, headers) -> {
       case get_message_stream_recorder(request_id) {
         option.Some(state) -> {
-          finish_message_stream_recording(request_id, state)
+          // Capture final (trailing) headers from stream_end when present.
+          let header_tuples = headers_to_tuples(headers)
+          let final_headers = case header_tuples == [] {
+            True -> state.headers
+            False -> header_tuples
+          }
+          let updated =
+            MessageStreamRecorderState(..state, headers: final_headers)
+          finish_message_stream_recording(request_id, updated)
         }
         option.None -> Nil
       }
@@ -2540,7 +2543,17 @@ fn record_stream_message(message: StreamMessage) -> Nil {
         option.None -> Nil
       }
     }
-    StreamStart(_request_id, _headers) -> Nil
+    StreamStart(request_id, headers) -> {
+      case get_message_stream_recorder(request_id) {
+        option.Some(state) -> {
+          let header_tuples = headers_to_tuples(headers)
+          let new_state =
+            MessageStreamRecorderState(..state, headers: header_tuples)
+          update_message_stream_recorder(request_id, new_state)
+        }
+        option.None -> Nil
+      }
+    }
     DecodeError(error_reason) -> {
       // DecodeError indicates a serious FFI problem at the FFI boundary.
       io.println_error(
@@ -2557,11 +2570,17 @@ fn finish_message_stream_recording(
 ) -> Nil {
   let ordered_chunks = list.reverse(state.chunks)
 
+  let status = case
+    list.any(state.headers, fn(h) { string.lowercase(h.0) == "content-range" })
+  {
+    True -> 206
+    False -> 200
+  }
+
   let response =
     recording.StreamingResponse(
-      status: 200,
-      // TODO: capture actual status and headers from StreamStart
-      headers: [],
+      status: status,
+      headers: state.headers,
       chunks: ordered_chunks,
     )
 

@@ -14,14 +14,14 @@
 
 -type pid_() :: any().
 
--opaque subject(DRN) :: {subject, pid_(), gleam@dynamic:dynamic_()} |
-    {named_subject, name(DRN)}.
+-opaque subject(DQL) :: {subject, pid_(), gleam@dynamic:dynamic_()} |
+    {named_subject, name(DQL)}.
 
--type name(DRO) :: any() | {gleam_phantom, DRO}.
+-type name(DQM) :: any() | {gleam_phantom, DQM}.
 
 -type do_not_leak() :: any().
 
--type selector(DRP) :: any() | {gleam_phantom, DRP}.
+-type selector(DQN) :: any() | {gleam_phantom, DQN}.
 
 -type exit_message() :: {exit_message, pid_(), exit_reason()}.
 
@@ -127,13 +127,13 @@ new_name(Prefix) ->
     " All subjects created for the same name behave identically and can be used\n"
     " interchangably.\n"
 ).
--spec named_subject(name(DRW)) -> subject(DRW).
+-spec named_subject(name(DQU)) -> subject(DQU).
 named_subject(Name) ->
     {named_subject, Name}.
 
 -file("src/gleam/erlang/process.gleam", 149).
 ?DOC(" Get the name of a subject, returning an error if it doesn't have one.\n").
--spec subject_name(subject(DRZ)) -> {ok, name(DRZ)} | {error, nil}.
+-spec subject_name(subject(DQX)) -> {ok, name(DQX)} | {error, nil}.
 subject_name(Subject) ->
     case Subject of
         {named_subject, Name} ->
@@ -209,7 +209,7 @@ subject_owner(Subject) ->
     " send(subject, \"Hello, Joe!\")\n"
     " ```\n"
 ).
--spec send(subject(DSL), DSL) -> nil.
+-spec send(subject(DRJ), DRJ) -> nil.
 send(Subject, Message) ->
     case Subject of
         {subject, Pid, Tag} ->
@@ -257,7 +257,7 @@ send(Subject, Message) ->
     " This function will panic if a process tries to receive with a non-named\n"
     " subject that it does not own.\n"
 ).
--spec 'receive'(subject(DSN), integer()) -> {ok, DSN} | {error, nil}.
+-spec 'receive'(subject(DRL), integer()) -> {ok, DRL} | {error, nil}.
 'receive'(Subject, Timeout) ->
     case Subject of
         {named_subject, _} ->
@@ -284,7 +284,7 @@ send(Subject, Message) ->
     "\n"
     " Same as `receive` but waits forever and returns the message as is.\n"
 ).
--spec receive_forever(subject(DSV)) -> DSV.
+-spec receive_forever(subject(DRT)) -> DRT.
 receive_forever(Subject) ->
     gleam_erlang_ffi:'receive'(Subject).
 
@@ -316,7 +316,7 @@ new_selector() ->
     "\n"
     " The `within` parameter specifies the timeout duration in milliseconds.\n"
 ).
--spec selector_receive(selector(DSZ), integer()) -> {ok, DSZ} | {error, nil}.
+-spec selector_receive(selector(DRX), integer()) -> {ok, DRX} | {error, nil}.
 selector_receive(From, Within) ->
     gleam_erlang_ffi:select(From, Within).
 
@@ -325,7 +325,7 @@ selector_receive(From, Within) ->
     " Similar to the `select` function but will wait forever for a message to\n"
     " arrive rather than timing out after a specified amount of time.\n"
 ).
--spec selector_receive_forever(selector(DTD)) -> DTD.
+-spec selector_receive_forever(selector(DSB)) -> DSB.
 selector_receive_forever(From) ->
     gleam_erlang_ffi:select(From).
 
@@ -337,7 +337,7 @@ selector_receive_forever(From) ->
     " This function can be used to change the type of messages received and may\n"
     " be useful when combined with the `merge_selector` function.\n"
 ).
--spec map_selector(selector(DTF), fun((DTF) -> DTH)) -> selector(DTH).
+-spec map_selector(selector(DSD), fun((DSD) -> DSF)) -> selector(DSF).
 map_selector(A, B) ->
     gleam_erlang_ffi:map_selector(A, B).
 
@@ -349,7 +349,7 @@ map_selector(A, B) ->
     " If a subject is handled by both selectors the handler function of the\n"
     " second selector is used.\n"
 ).
--spec merge_selector(selector(DTJ), selector(DTJ)) -> selector(DTJ).
+-spec merge_selector(selector(DSH), selector(DSH)) -> selector(DSH).
 merge_selector(A, B) ->
     gleam_erlang_ffi:merge_selector(A, B).
 
@@ -359,7 +359,7 @@ merge_selector(A, B) ->
     " sent to the process when a linked process exits the process must call the\n"
     " `trap_exit` beforehand.\n"
 ).
--spec select_trapped_exits(selector(DTN), fun((exit_message()) -> DTN)) -> selector(DTN).
+-spec select_trapped_exits(selector(DSL), fun((exit_message()) -> DSL)) -> selector(DSL).
 select_trapped_exits(Selector, Handler) ->
     Tag = erlang:binary_to_atom(<<"EXIT"/utf8>>),
     Handler@1 = fun(Message) ->
@@ -398,7 +398,7 @@ flush_messages() ->
     "\n"
     " See `deselect` to remove a subject from a selector.\n"
 ).
--spec select_map(selector(DTU), subject(DTW), fun((DTW) -> DTU)) -> selector(DTU).
+-spec select_map(selector(DSS), subject(DSU), fun((DSU) -> DSS)) -> selector(DSS).
 select_map(Selector, Subject, Transform) ->
     Handler = fun(Message) -> Transform(erlang:element(2, Message)) end,
     case Subject of
@@ -426,7 +426,7 @@ select_map(Selector, Subject, Transform) ->
     "\n"
     " See `deselect` to remove a subject from a selector.\n"
 ).
--spec select(selector(DTQ), subject(DTQ)) -> selector(DTQ).
+-spec select(selector(DSO), subject(DSO)) -> selector(DSO).
 select(Selector, Subject) ->
     select_map(Selector, Subject, fun(X) -> X end).
 
@@ -435,7 +435,7 @@ select(Selector, Subject) ->
     " Remove a new `Subject` from the `Selector` so that its messages will not be\n"
     " selected from the receiver process inbox.\n"
 ).
--spec deselect(selector(DTZ), subject(any())) -> selector(DTZ).
+-spec deselect(selector(DSX), subject(any())) -> selector(DSX).
 deselect(Selector, Subject) ->
     case Subject of
         {named_subject, Name} ->
@@ -459,11 +459,11 @@ deselect(Selector, Subject) ->
     " via a subject a new tag is used that is unique and specific to that subject.\n"
 ).
 -spec select_record(
-    selector(DUE),
+    selector(DTC),
     any(),
     integer(),
-    fun((gleam@dynamic:dynamic_()) -> DUE)
-) -> selector(DUE).
+    fun((gleam@dynamic:dynamic_()) -> DTC)
+) -> selector(DTC).
 select_record(Selector, Tag, Arity, Transform) ->
     gleam_erlang_ffi:insert_selector_handler(
         Selector,
@@ -480,7 +480,7 @@ select_record(Selector, Tag, Arity, Transform) ->
     " is handled, or when you need to handle messages from other BEAM languages\n"
     " which do not use subjects or record format messages.\n"
 ).
--spec select_other(selector(DUI), fun((gleam@dynamic:dynamic_()) -> DUI)) -> selector(DUI).
+-spec select_other(selector(DTG), fun((gleam@dynamic:dynamic_()) -> DTG)) -> selector(DTG).
 select_other(Selector, Handler) ->
     gleam_erlang_ffi:insert_selector_handler(Selector, anything, Handler).
 
@@ -544,7 +544,7 @@ monitor(Pid) ->
     " The handler can be removed from the selector later using\n"
     " [`deselect_specific_monitor`](#deselect_specific_monitor).\n"
 ).
--spec select_specific_monitor(selector(DUU), monitor(), fun((down()) -> DUU)) -> selector(DUU).
+-spec select_specific_monitor(selector(DTS), monitor(), fun((down()) -> DTS)) -> selector(DTS).
 select_specific_monitor(Selector, Monitor, Mapping) ->
     gleam_erlang_ffi:insert_selector_handler(Selector, Monitor, Mapping).
 
@@ -556,7 +556,7 @@ select_specific_monitor(Selector, Monitor, Mapping) ->
     " [`select_specific_monitor`](#select_specific_monitor), but this\n"
     " function is preferred if you need to select for multiple monitors.\n"
 ).
--spec select_monitors(selector(DUX), fun((down()) -> DUX)) -> selector(DUX).
+-spec select_monitors(selector(DTV), fun((down()) -> DTV)) -> selector(DTV).
 select_monitors(Selector, Mapping) ->
     gleam_erlang_ffi:insert_selector_handler(
         Selector,
@@ -584,16 +584,16 @@ demonitor_process(Monitor) ->
     " the `Monitor` is not in the `Selector` it will be returned\n"
     " unchanged.\n"
 ).
--spec deselect_specific_monitor(selector(DVA), monitor()) -> selector(DVA).
+-spec deselect_specific_monitor(selector(DTY), monitor()) -> selector(DTY).
 deselect_specific_monitor(Selector, Monitor) ->
     gleam_erlang_ffi:remove_selector_handler(Selector, Monitor).
 
 -file("src/gleam/erlang/process.gleam", 605).
 -spec perform_call(
-    subject(DVD),
-    fun((subject(DVF)) -> DVD),
-    fun((selector(DVF)) -> {ok, DVF} | {error, nil})
-) -> DVF.
+    subject(DUB),
+    fun((subject(DUD)) -> DUB),
+    fun((selector(DUD)) -> {ok, DUD} | {error, nil})
+) -> DUD.
 perform_call(Subject, Make_request, Run_selector) ->
     Reply_subject = new_subject(),
     Callee@1 = case subject_owner(Subject) of
@@ -705,7 +705,7 @@ perform_call(Subject, Make_request, Run_selector) ->
     " }\n"
     " ```\n"
 ).
--spec call(subject(DVK), integer(), fun((subject(DVM)) -> DVK)) -> DVM.
+-spec call(subject(DUI), integer(), fun((subject(DUK)) -> DUI)) -> DUK.
 call(Subject, Timeout, Make_request) ->
     perform_call(
         Subject,
@@ -724,7 +724,7 @@ call(Subject, Timeout, Make_request) ->
     " - The subject is a named subject but no process is registered with that\n"
     "   name.\n"
 ).
--spec call_forever(subject(DVO), fun((subject(DVQ)) -> DVO)) -> DVQ.
+-spec call_forever(subject(DUM), fun((subject(DUO)) -> DUM)) -> DUO.
 call_forever(Subject, Make_request) ->
     perform_call(
         Subject,
@@ -756,7 +756,7 @@ unlink(Pid) ->
 
 -file("src/gleam/erlang/process.gleam", 751).
 ?DOC(" Send a message over a channel after a specified number of milliseconds.\n").
--spec send_after(subject(DVW), integer(), DVW) -> timer().
+-spec send_after(subject(DUU), integer(), DUU) -> timer().
 send_after(Subject, Delay, Message) ->
     case Subject of
         {named_subject, Name} ->

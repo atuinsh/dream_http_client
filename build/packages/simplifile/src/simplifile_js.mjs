@@ -68,42 +68,6 @@ function toUint8Array(contents) {
 }
 
 /**
- * Check whether a file exists at the given path
- *
- * @param {string} filepath
- * @returns {Ok | GError}
- */
-export function isFile(filepath) {
-  try {
-    return new Ok(fs.statSync(path.normalize(filepath)).isFile());
-  } catch (e) {
-    if (e.code === "ENOENT") {
-      return new Ok(false);
-    } else {
-      return new GError(cast_error(e.code));
-    }
-  }
-}
-
-/**
- * Check whether a symbolic link exists at the given path
- *
- * @param {string} filepath
- * @returns {Ok | GError}
- */
-export function isSymlink(filepath) {
-  try {
-    return new Ok(fs.lstatSync(path.normalize(filepath)).isSymbolicLink());
-  } catch (e) {
-    if (e.code === "ENOENT") {
-      return new Ok(false);
-    } else {
-      return new GError(cast_error(e.code));
-    }
-  }
-}
-
-/**
  * Check whether a directory exists at the given path
  *
  * @param {string} filepath
@@ -180,6 +144,18 @@ export function delete_(fileOrDirPath) {
       fs.unlinkSync(path.normalize(fileOrDirPath));
     }
   });
+}
+
+/**
+ * Specifically delete a single file.
+ * 
+ * @param {string} filePath 
+ * @returns {Ok | GError}
+ */
+export function deleteFile(filePath) {
+  return gleamResult(() => {
+    fs.unlinkSync(path.normalize(filePath));
+  })
 }
 
 /**
@@ -398,3 +374,38 @@ function cast_error(error_code) {
       return new $simplifile.Unknown(error_code);
   }
 }
+
+/**
+ * Resolves a relative path to an absolute path based on the current working directory.
+ *
+ * @param {string} filepath The file path to resolve
+ * @returns {string} The resolved file path
+ */
+export function resolve(filepath) {
+  return path.resolve(filepath);
+}
+
+/**
+ * Mimics the unix touch command: creates a file if it doesn't exist,
+ * and updates the access and modification times to now.
+ *
+ * @param {string} filepath
+ * @returns {Ok | GError}
+ */
+export function touch(filepath) {
+  return gleamResult(() => {
+    const normalizedPath = path.normalize(filepath);
+    const now = new Date();
+    try {
+      // Try to update times (file exists)
+      fs.utimesSync(normalizedPath, now, now);
+    } catch (e) {
+      if (e.code === "ENOENT") {
+        // File doesn't exist, create it (times are set to now automatically)
+        fs.writeFileSync(normalizedPath, "");
+      } else {
+        throw e;
+      }
+    }
+  });
+} 

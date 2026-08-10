@@ -97,7 +97,7 @@ concat(Trees) ->
 
 -file("src/gleam/string_tree.gleam", 94).
 ?DOC(
-    " Turns a `StringTree` into a `String`\n"
+    " Turns a `StringTree` into a `String`.\n"
     "\n"
     " This function is implemented natively by the virtual machine and is highly\n"
     " optimised.\n"
@@ -156,50 +156,48 @@ split(Tree, Pattern) ->
 replace(Tree, Pattern, Substitute) ->
     gleam_stdlib:string_replace(Tree, Pattern, Substitute).
 
--file("src/gleam/string_tree.gleam", 182).
+-file("src/gleam/string_tree.gleam", 183).
 ?DOC(
     " Compares two string trees to determine if they have the same textual\n"
     " content.\n"
     "\n"
     " Comparing two string trees using the `==` operator may return `False` even\n"
-    " if they have the same content as they may have been build in different ways,\n"
+    " if they have the same content as they may have been built in different ways,\n"
     " so using this function is often preferred.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " from_strings([\"a\", \"b\"]) == from_string(\"ab\")\n"
-    " // -> False\n"
+    " assert string_tree.from_strings([\"a\", \"b\"]) != string_tree.from_string(\"ab\")\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " is_equal(from_strings([\"a\", \"b\"]), from_string(\"ab\"))\n"
-    " // -> True\n"
+    " assert string_tree.is_equal(\n"
+    "   string_tree.from_strings([\"a\", \"b\"]),\n"
+    "   string_tree.from_string(\"ab\"),\n"
+    " )\n"
     " ```\n"
 ).
 -spec is_equal(string_tree(), string_tree()) -> boolean().
 is_equal(A, B) ->
     string:equal(A, B).
 
--file("src/gleam/string_tree.gleam", 206).
+-file("src/gleam/string_tree.gleam", 204).
 ?DOC(
     " Inspects a `StringTree` to determine if it is equivalent to an empty string.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " from_string(\"ok\") |> is_empty\n"
-    " // -> False\n"
+    " assert !{ string_tree.from_string(\"ok\") |> string_tree.is_empty }\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " from_string(\"\") |> is_empty\n"
-    " // -> True\n"
+    " assert string_tree.from_string(\"\") |> string_tree.is_empty\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " from_strings([]) |> is_empty\n"
-    " // -> True\n"
+    " assert string_tree.from_strings([]) |> string_tree.is_empty\n"
     " ```\n"
 ).
 -spec is_empty(string_tree()) -> boolean().

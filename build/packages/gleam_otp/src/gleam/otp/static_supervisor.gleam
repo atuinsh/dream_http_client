@@ -152,7 +152,7 @@ pub fn auto_shutdown(builder: Builder, value: AutoShutdown) -> Builder {
 /// The supervisor will be linked to the parent process that calls this
 /// function.
 ///
-/// If any child fails to start the supevisor first terminates all already
+/// If any child fails to start the supervisor first terminates all already
 /// started child processes with reason shutdown and then terminate itself and
 /// returns an error.
 ///
@@ -178,10 +178,10 @@ pub fn start(
 
 /// Create a `ChildSpecification` that adds this supervisor as the child of
 /// another, making it fault tolerant and part of the application's supervision
-/// tree. You should prefer to starting unsupervised supervisors with the
+/// tree. You should prefer this to starting unsupervised supervisors with the
 /// `start` function.
 ///
-/// If any child fails to start the supevisor first terminates all already
+/// If any child fails to start the supervisor first terminates all already
 /// started child processes with reason shutdown and then terminate itself and
 /// returns an error.
 ///

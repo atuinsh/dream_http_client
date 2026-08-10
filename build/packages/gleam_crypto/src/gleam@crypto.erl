@@ -1,5 +1,5 @@
 -module(gleam@crypto).
--compile([no_auto_import, nowarn_unused_vars, nowarn_unused_function, nowarn_nomatch]).
+-compile([no_auto_import, nowarn_unused_vars, nowarn_unused_function, nowarn_nomatch, inline]).
 -define(FILEPATH, "src/gleam/crypto.gleam").
 -export([strong_random_bytes/1, new_hasher/1, hash_chunk/2, digest/1, hash/2, hmac/3, secure_compare/2, sign_message/3, verify_signed_message/2]).
 -export_type([hash_algorithm/0, hasher/0]).
@@ -157,7 +157,7 @@ signing_input(Digest_type, Message) ->
         md5 ->
             <<"HMD5"/utf8>>
     end,
-    gleam@string:concat(
+    erlang:list_to_binary(
         [gleam@bit_array:base64_url_encode(<<Protected/binary>>, false),
             <<"."/utf8>>,
             gleam@bit_array:base64_url_encode(Message, false)]
@@ -175,7 +175,7 @@ signing_input(Digest_type, Message) ->
 sign_message(Message, Secret, Digest_type) ->
     Input = signing_input(Digest_type, Message),
     Signature = gleam_crypto_ffi:hmac(<<Input/binary>>, Digest_type, Secret),
-    gleam@string:concat(
+    erlang:list_to_binary(
         [Input,
             <<"."/utf8>>,
             gleam@bit_array:base64_url_encode(Signature, false)]
@@ -194,7 +194,7 @@ verify_signed_message(Message, Secret) ->
                 {error, nil}
         end, fun(_use0) ->
             {Protected, Payload, Signature} = _use0,
-            Text = gleam@string:concat([Protected, <<"."/utf8>>, Payload]),
+            Text = erlang:list_to_binary([Protected, <<"."/utf8>>, Payload]),
             gleam@result:'try'(
                 gleam@bit_array:base64_url_decode(Payload),
                 fun(Payload@1) ->

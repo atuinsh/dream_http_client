@@ -5,9 +5,9 @@
 
 -file("src/gleam/http/service.gleam", 17).
 -spec map_response_body(
-    fun((FBF) -> gleam@http@response:response(FBG)),
-    fun((FBG) -> FBI)
-) -> fun((FBF) -> gleam@http@response:response(FBI)).
+    fun((FAD) -> gleam@http@response:response(FAE)),
+    fun((FAE) -> FAG)
+) -> fun((FAD) -> gleam@http@response:response(FAG)).
 map_response_body(Service, Mapper) ->
     fun(Req) -> _pipe = Req,
         _pipe@1 = Service(_pipe),
@@ -15,18 +15,18 @@ map_response_body(Service, Mapper) ->
 
 -file("src/gleam/http/service.gleam", 29).
 -spec prepend_response_header(
-    fun((FBK) -> gleam@http@response:response(FBL)),
+    fun((FAI) -> gleam@http@response:response(FAJ)),
     binary(),
     binary()
-) -> fun((FBK) -> gleam@http@response:response(FBL)).
+) -> fun((FAI) -> gleam@http@response:response(FAJ)).
 prepend_response_header(Service, Key, Value) ->
     fun(Req) -> _pipe = Req,
         _pipe@1 = Service(_pipe),
         gleam@http@response:prepend_header(_pipe@1, Key, Value) end.
 
 -file("src/gleam/http/service.gleam", 41).
--spec ensure_post(gleam@http@request:request(FBO)) -> {ok,
-        gleam@http@request:request(FBO)} |
+-spec ensure_post(gleam@http@request:request(FAM)) -> {ok,
+        gleam@http@request:request(FAM)} |
     {error, nil}.
 ensure_post(Req) ->
     case erlang:element(2, Req) of
@@ -70,7 +70,7 @@ get_override_method(Request) ->
     ).
 
 -file("src/gleam/http/service.gleam", 59).
--spec method_override(fun((gleam@http@request:request(FBX)) -> FBZ)) -> fun((gleam@http@request:request(FBX)) -> FBZ).
+-spec method_override(fun((gleam@http@request:request(FAV)) -> FAX)) -> fun((gleam@http@request:request(FAV)) -> FAX).
 method_override(Service) ->
     fun(Request) -> _pipe = Request,
         _pipe@1 = ensure_post(_pipe),

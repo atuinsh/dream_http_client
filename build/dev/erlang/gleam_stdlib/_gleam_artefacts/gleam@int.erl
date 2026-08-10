@@ -1,7 +1,7 @@
 -module(gleam@int).
 -compile([no_auto_import, nowarn_unused_vars, nowarn_unused_function, nowarn_nomatch, inline]).
 -define(FILEPATH, "src/gleam/int.gleam").
--export([absolute_value/1, to_float/1, power/2, square_root/1, parse/1, base_parse/2, to_string/1, to_base_string/2, to_base2/1, to_base8/1, to_base16/1, to_base36/1, max/2, min/2, clamp/3, compare/2, is_even/1, is_odd/1, negate/1, sum/1, product/1, digits/2, undigits/2, random/1, divide/2, remainder/2, modulo/2, floor_divide/2, add/2, multiply/2, subtract/2, bitwise_and/2, bitwise_not/1, bitwise_or/2, bitwise_exclusive_or/2, bitwise_shift_left/2, bitwise_shift_right/2]).
+-export([absolute_value/1, to_float/1, power/2, square_root/1, parse/1, base_parse/2, to_string/1, to_base_string/2, to_base2/1, to_base8/1, to_base16/1, to_base36/1, max/2, min/2, clamp/3, compare/2, is_even/1, is_odd/1, negate/1, sum/1, product/1, random/1, divide/2, remainder/2, modulo/2, floor_divide/2, add/2, multiply/2, subtract/2, bitwise_and/2, bitwise_not/1, bitwise_or/2, bitwise_exclusive_or/2, bitwise_shift_left/2, bitwise_shift_right/2, range/4]).
 
 -if(?OTP_RELEASE >= 27).
 -define(MODULEDOC(Str), -moduledoc(Str)).
@@ -25,20 +25,18 @@
     " in mathematics.\n"
 ).
 
--file("src/gleam/int.gleam", 30).
+-file("src/gleam/int.gleam", 28).
 ?DOC(
     " Returns the absolute value of the input.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " absolute_value(-12)\n"
-    " // -> 12\n"
+    " assert int.absolute_value(-12) == 12\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " absolute_value(10)\n"
-    " // -> 10\n"
+    " assert int.absolute_value(10) == 10\n"
     " ```\n"
 ).
 -spec absolute_value(integer()) -> integer().
@@ -51,61 +49,53 @@ absolute_value(X) ->
             X * -1
     end.
 
--file("src/gleam/int.gleam", 280).
+-file("src/gleam/int.gleam", 254).
 ?DOC(
     " Takes an int and returns its value as a float.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " to_float(5)\n"
-    " // -> 5.0\n"
+    " assert int.to_float(5) == 5.0\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " to_float(0)\n"
-    " // -> 0.0\n"
+    " assert int.to_float(0) == 0.0\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " to_float(-3)\n"
-    " // -> -3.0\n"
+    " assert int.to_float(-3) == -3.0\n"
     " ```\n"
 ).
 -spec to_float(integer()) -> float().
 to_float(X) ->
     erlang:float(X).
 
--file("src/gleam/int.gleam", 67).
+-file("src/gleam/int.gleam", 60).
 ?DOC(
-    " Returns the results of the base being raised to the power of the\n"
+    " Returns the result of the base being raised to the power of the\n"
     " exponent, as a `Float`.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " power(2, -1.0)\n"
-    " // -> Ok(0.5)\n"
+    " assert int.power(2, -1.0) == Ok(0.5)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " power(2, 2.0)\n"
-    " // -> Ok(4.0)\n"
+    " assert int.power(2, 2.0) == Ok(4.0)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " power(8, 1.5)\n"
-    " // -> Ok(22.627416997969522)\n"
+    " assert int.power(8, 1.5) == Ok(22.627416997969522)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " 4 |> power(of: 2.0)\n"
-    " // -> Ok(16.0)\n"
+    " assert 4 |> int.power(of: 2.0) == Ok(16.0)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " power(-1, 0.5)\n"
-    " // -> Error(Nil)\n"
+    " assert int.power(-1, 0.5) == Error(Nil)\n"
     " ```\n"
 ).
 -spec power(integer(), float()) -> {ok, float()} | {error, nil}.
@@ -114,20 +104,18 @@ power(Base, Exponent) ->
     _pipe@1 = erlang:float(_pipe),
     gleam@float:power(_pipe@1, Exponent).
 
--file("src/gleam/int.gleam", 87).
+-file("src/gleam/int.gleam", 78).
 ?DOC(
     " Returns the square root of the input as a `Float`.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " square_root(4)\n"
-    " // -> Ok(2.0)\n"
+    " assert int.square_root(4) == Ok(2.0)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " square_root(-16)\n"
-    " // -> Error(Nil)\n"
+    " assert int.square_root(-16) == Error(Nil)\n"
     " ```\n"
 ).
 -spec square_root(integer()) -> {ok, float()} | {error, nil}.
@@ -136,56 +124,52 @@ square_root(X) ->
     _pipe@1 = erlang:float(_pipe),
     gleam@float:square_root(_pipe@1).
 
--file("src/gleam/int.gleam", 109).
+-file("src/gleam/int.gleam", 98).
 ?DOC(
     " Parses a given string as an int if possible.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " parse(\"2\")\n"
-    " // -> Ok(2)\n"
+    " assert int.parse(\"2\") == Ok(2)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " parse(\"ABC\")\n"
-    " // -> Error(Nil)\n"
+    " assert int.parse(\"ABC\") == Error(Nil)\n"
     " ```\n"
 ).
 -spec parse(binary()) -> {ok, integer()} | {error, nil}.
 parse(String) ->
     gleam_stdlib:parse_int(String).
 
--file("src/gleam/int.gleam", 141).
+-file("src/gleam/int.gleam", 128).
 ?DOC(
-    " Parses a given string as an int in a given base if possible.\n"
-    " Supports only bases 2 to 36, for values outside of which this function returns an `Error(Nil)`.\n"
+    " Parses a given string as an int in a given base, returning an error if the\n"
+    " input was not a valid number for the given base.\n"
+    "\n"
+    " Supports only bases 2 to 36, for values outside of which this function\n"
+    " returns an `Error(Nil)`.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " base_parse(\"10\", 2)\n"
-    " // -> Ok(2)\n"
+    " assert int.base_parse(\"10\", 2) == Ok(2)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " base_parse(\"30\", 16)\n"
-    " // -> Ok(48)\n"
+    " assert int.base_parse(\"30\", 16) == Ok(48)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " base_parse(\"1C\", 36)\n"
-    " // -> Ok(48)\n"
+    " assert int.base_parse(\"1C\", 36) == Ok(48)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " base_parse(\"48\", 1)\n"
-    " // -> Error(Nil)\n"
+    " assert int.base_parse(\"48\", 1) == Error(Nil)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " base_parse(\"48\", 37)\n"
-    " // -> Error(Nil)\n"
+    " assert int.base_parse(\"48\", 37) == Error(Nil)\n"
     " ```\n"
 ).
 -spec base_parse(binary(), integer()) -> {ok, integer()} | {error, nil}.
@@ -198,22 +182,21 @@ base_parse(String, Base) ->
             {error, nil}
     end.
 
--file("src/gleam/int.gleam", 163).
+-file("src/gleam/int.gleam", 149).
 ?DOC(
     " Prints a given int to a string.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " to_string(2)\n"
-    " // -> \"2\"\n"
+    " assert int.to_string(2) == \"2\"\n"
     " ```\n"
 ).
 -spec to_string(integer()) -> binary().
 to_string(X) ->
     erlang:integer_to_binary(X).
 
--file("src/gleam/int.gleam", 196).
+-file("src/gleam/int.gleam", 177).
 ?DOC(
     " Prints a given int to a string using the base number provided.\n"
     " Supports only bases 2 to 36, for values outside of which this function returns an `Error(Nil)`.\n"
@@ -222,28 +205,23 @@ to_string(X) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " to_base_string(2, 2)\n"
-    " // -> Ok(\"10\")\n"
+    " assert int.to_base_string(2, 2) == Ok(\"10\")\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " to_base_string(48, 16)\n"
-    " // -> Ok(\"30\")\n"
+    " assert int.to_base_string(48, 16) == Ok(\"30\")\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " to_base_string(48, 36)\n"
-    " // -> Ok(\"1C\")\n"
+    " assert int.to_base_string(48, 36) == Ok(\"1C\")\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " to_base_string(48, 1)\n"
-    " // -> Error(Nil)\n"
+    " assert int.to_base_string(48, 1) == Error(Nil)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " to_base_string(48, 37)\n"
-    " // -> Error(Nil)\n"
+    " assert int.to_base_string(48, 37) == Error(Nil)\n"
     " ```\n"
 ).
 -spec to_base_string(integer(), integer()) -> {ok, binary()} | {error, nil}.
@@ -256,75 +234,70 @@ to_base_string(X, Base) ->
             {error, nil}
     end.
 
--file("src/gleam/int.gleam", 216).
+-file("src/gleam/int.gleam", 196).
 ?DOC(
     " Prints a given int to a string using base-2.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " to_base2(2)\n"
-    " // -> \"10\"\n"
+    " assert int.to_base2(2) == \"10\"\n"
     " ```\n"
 ).
 -spec to_base2(integer()) -> binary().
 to_base2(X) ->
     erlang:integer_to_binary(X, 2).
 
--file("src/gleam/int.gleam", 229).
+-file("src/gleam/int.gleam", 208).
 ?DOC(
     " Prints a given int to a string using base-8.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " to_base8(15)\n"
-    " // -> \"17\"\n"
+    " assert int.to_base8(15) == \"17\"\n"
     " ```\n"
 ).
 -spec to_base8(integer()) -> binary().
 to_base8(X) ->
     erlang:integer_to_binary(X, 8).
 
--file("src/gleam/int.gleam", 242).
+-file("src/gleam/int.gleam", 220).
 ?DOC(
     " Prints a given int to a string using base-16.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " to_base16(48)\n"
-    " // -> \"30\"\n"
+    " assert int.to_base16(48) == \"30\"\n"
     " ```\n"
 ).
 -spec to_base16(integer()) -> binary().
 to_base16(X) ->
     erlang:integer_to_binary(X, 16).
 
--file("src/gleam/int.gleam", 255).
+-file("src/gleam/int.gleam", 232).
 ?DOC(
     " Prints a given int to a string using base-36.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " to_base36(48)\n"
-    " // -> \"1C\"\n"
+    " assert int.to_base36(48) == \"1C\"\n"
     " ```\n"
 ).
 -spec to_base36(integer()) -> binary().
 to_base36(X) ->
     erlang:integer_to_binary(X, 36).
 
--file("src/gleam/int.gleam", 358).
+-file("src/gleam/int.gleam", 329).
 ?DOC(
     " Compares two ints, returning the larger of the two.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " max(2, 3)\n"
-    " // -> 3\n"
+    " assert int.max(2, 3) == 3\n"
     " ```\n"
 ).
 -spec max(integer(), integer()) -> integer().
@@ -337,15 +310,14 @@ max(A, B) ->
             B
     end.
 
--file("src/gleam/int.gleam", 342).
+-file("src/gleam/int.gleam", 314).
 ?DOC(
     " Compares two ints, returning the smaller of the two.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " min(2, 3)\n"
-    " // -> 2\n"
+    " assert int.min(2, 3) == 2\n"
     " ```\n"
 ).
 -spec min(integer(), integer()) -> integer().
@@ -358,20 +330,22 @@ min(A, B) ->
             B
     end.
 
--file("src/gleam/int.gleam", 296).
+-file("src/gleam/int.gleam", 272).
 ?DOC(
     " Restricts an int between two bounds.\n"
+    "\n"
+    " Note: If the `min` argument is larger than the `max` argument then they\n"
+    " will be swapped, so the minimum bound is always lower than the maximum\n"
+    " bound.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " clamp(40, min: 50, max: 60)\n"
-    " // -> 50\n"
+    " assert int.clamp(40, min: 50, max: 60) == 50\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " clamp(40, min: 50, max: 30)\n"
-    " // -> 40\n"
+    " assert int.clamp(40, min: 50, max: 30) == 40\n"
     " ```\n"
 ).
 -spec clamp(integer(), integer(), integer()) -> integer().
@@ -388,25 +362,22 @@ clamp(X, Min_bound, Max_bound) ->
             max(_pipe@3, Min_bound)
     end.
 
--file("src/gleam/int.gleam", 322).
+-file("src/gleam/int.gleam", 295).
 ?DOC(
     " Compares two ints, returning an order.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " compare(2, 3)\n"
-    " // -> Lt\n"
+    " assert int.compare(2, 3) == Lt\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " compare(4, 3)\n"
-    " // -> Gt\n"
+    " assert int.compare(4, 3) == Gt\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " compare(3, 3)\n"
-    " // -> Eq\n"
+    " assert int.compare(3, 3) == Eq\n"
     " ```\n"
 ).
 -spec compare(integer(), integer()) -> gleam@order:order().
@@ -425,62 +396,57 @@ compare(A, B) ->
             end
     end.
 
--file("src/gleam/int.gleam", 379).
+-file("src/gleam/int.gleam", 348).
 ?DOC(
     " Returns whether the value provided is even.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " is_even(2)\n"
-    " // -> True\n"
+    " assert int.is_even(2)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " is_even(3)\n"
-    " // -> False\n"
+    " assert !int.is_even(3)\n"
     " ```\n"
 ).
 -spec is_even(integer()) -> boolean().
 is_even(X) ->
     (X rem 2) =:= 0.
 
--file("src/gleam/int.gleam", 397).
+-file("src/gleam/int.gleam", 364).
 ?DOC(
     " Returns whether the value provided is odd.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " is_odd(3)\n"
-    " // -> True\n"
+    " assert int.is_odd(3)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " is_odd(2)\n"
-    " // -> False\n"
+    " assert !int.is_odd(2)\n"
     " ```\n"
 ).
 -spec is_odd(integer()) -> boolean().
 is_odd(X) ->
     (X rem 2) /= 0.
 
--file("src/gleam/int.gleam", 410).
+-file("src/gleam/int.gleam", 376).
 ?DOC(
     " Returns the negative of the value provided.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " negate(1)\n"
-    " // -> -1\n"
+    " assert int.negate(1) == -1\n"
     " ```\n"
 ).
 -spec negate(integer()) -> integer().
 negate(X) ->
     -1 * X.
 
--file("src/gleam/int.gleam", 427).
+-file("src/gleam/int.gleam", 392).
 -spec sum_loop(list(integer()), integer()) -> integer().
 sum_loop(Numbers, Initial) ->
     case Numbers of
@@ -491,22 +457,21 @@ sum_loop(Numbers, Initial) ->
             Initial
     end.
 
--file("src/gleam/int.gleam", 423).
+-file("src/gleam/int.gleam", 388).
 ?DOC(
     " Sums a list of ints.\n"
     "\n"
     " ## Example\n"
     "\n"
     " ```gleam\n"
-    " sum([1, 2, 3])\n"
-    " // -> 6\n"
+    " assert int.sum([1, 2, 3]) == 6\n"
     " ```\n"
 ).
 -spec sum(list(integer())) -> integer().
 sum(Numbers) ->
     sum_loop(Numbers, 0).
 
--file("src/gleam/int.gleam", 447).
+-file("src/gleam/int.gleam", 411).
 -spec product_loop(list(integer()), integer()) -> integer().
 product_loop(Numbers, Initial) ->
     case Numbers of
@@ -517,76 +482,21 @@ product_loop(Numbers, Initial) ->
             Initial
     end.
 
--file("src/gleam/int.gleam", 443).
+-file("src/gleam/int.gleam", 407).
 ?DOC(
     " Multiplies a list of ints and returns the product.\n"
     "\n"
     " ## Example\n"
     "\n"
     " ```gleam\n"
-    " product([2, 3, 4])\n"
-    " // -> 24\n"
+    " assert int.product([2, 3, 4]) == 24\n"
     " ```\n"
 ).
 -spec product(list(integer())) -> integer().
 product(Numbers) ->
     product_loop(Numbers, 1).
 
--file("src/gleam/int.gleam", 462).
--spec digits_loop(integer(), integer(), list(integer())) -> list(integer()).
-digits_loop(X, Base, Acc) ->
-    case absolute_value(X) < Base of
-        true ->
-            [X | Acc];
-
-        false ->
-            digits_loop(case Base of
-                    0 -> 0;
-                    Gleam@denominator -> X div Gleam@denominator
-                end, Base, [case Base of
-                        0 -> 0;
-                        Gleam@denominator@1 -> X rem Gleam@denominator@1
-                    end | Acc])
-    end.
-
--file("src/gleam/int.gleam", 455).
--spec digits(integer(), integer()) -> {ok, list(integer())} | {error, nil}.
-digits(X, Base) ->
-    case Base < 2 of
-        true ->
-            {error, nil};
-
-        false ->
-            {ok, digits_loop(X, Base, [])}
-    end.
-
--file("src/gleam/int.gleam", 477).
--spec undigits_loop(list(integer()), integer(), integer()) -> {ok, integer()} |
-    {error, nil}.
-undigits_loop(Numbers, Base, Acc) ->
-    case Numbers of
-        [] ->
-            {ok, Acc};
-
-        [Digit | _] when Digit >= Base ->
-            {error, nil};
-
-        [Digit@1 | Rest] ->
-            undigits_loop(Rest, Base, (Acc * Base) + Digit@1)
-    end.
-
--file("src/gleam/int.gleam", 470).
--spec undigits(list(integer()), integer()) -> {ok, integer()} | {error, nil}.
-undigits(Numbers, Base) ->
-    case Base < 2 of
-        true ->
-            {error, nil};
-
-        false ->
-            undigits_loop(Numbers, Base, 0)
-    end.
-
--file("src/gleam/int.gleam", 506).
+-file("src/gleam/int.gleam", 439).
 ?DOC(
     " Generates a random int between zero and the given maximum.\n"
     "\n"
@@ -595,17 +505,17 @@ undigits(Numbers, Base) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " random(10)\n"
+    " int.random(10)\n"
     " // -> 4\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " random(1)\n"
+    " int.random(1)\n"
     " // -> 0\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " random(-1)\n"
+    " int.random(-1)\n"
     " // -> -1\n"
     " ```\n"
 ).
@@ -615,7 +525,7 @@ random(Max) ->
     _pipe@1 = math:floor(_pipe),
     erlang:round(_pipe@1).
 
--file("src/gleam/int.gleam", 539).
+-file("src/gleam/int.gleam", 468).
 ?DOC(
     " Performs a truncated integer division.\n"
     "\n"
@@ -625,23 +535,19 @@ random(Max) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " divide(0, 1)\n"
-    " // -> Ok(0)\n"
+    " assert int.divide(0, 1) == Ok(0)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " divide(1, 0)\n"
-    " // -> Error(Nil)\n"
+    " assert int.divide(1, 0) == Error(Nil)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " divide(5, 2)\n"
-    " // -> Ok(2)\n"
+    " assert int.divide(5, 2) == Ok(2)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " divide(-99, 2)\n"
-    " // -> Ok(-49)\n"
+    " assert int.divide(-99, 2) == Ok(-49)\n"
     " ```\n"
 ).
 -spec divide(integer(), integer()) -> {ok, integer()} | {error, nil}.
@@ -657,51 +563,44 @@ divide(Dividend, Divisor) ->
                 end}
     end.
 
--file("src/gleam/int.gleam", 591).
+-file("src/gleam/int.gleam", 513).
 ?DOC(
     " Computes the remainder of an integer division of inputs as a `Result`.\n"
     "\n"
     " Returns division of the inputs as a `Result`: If the given divisor equals\n"
     " `0`, this function returns an `Error`.\n"
     "\n"
-    " Most the time you will want to use the `%` operator instead of this\n"
+    " Most of the time you will want to use the `%` operator instead of this\n"
     " function.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " remainder(3, 2)\n"
-    " // -> Ok(1)\n"
+    " assert int.remainder(3, 2) == Ok(1)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " remainder(1, 0)\n"
-    " // -> Error(Nil)\n"
+    " assert int.remainder(1, 0) == Error(Nil)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " remainder(10, -1)\n"
-    " // -> Ok(0)\n"
+    " assert int.remainder(10, -1) == Ok(0)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " remainder(13, by: 3)\n"
-    " // -> Ok(1)\n"
+    " assert int.remainder(13, by: 3) == Ok(1)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " remainder(-13, by: 3)\n"
-    " // -> Ok(-1)\n"
+    " assert int.remainder(-13, by: 3) == Ok(-1)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " remainder(13, by: -3)\n"
-    " // -> Ok(1)\n"
+    " assert int.remainder(13, by: -3) == Ok(1)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " remainder(-13, by: -3)\n"
-    " // -> Ok(-1)\n"
+    " assert int.remainder(-13, by: -3) == Ok(-1)\n"
     " ```\n"
 ).
 -spec remainder(integer(), integer()) -> {ok, integer()} | {error, nil}.
@@ -717,7 +616,7 @@ remainder(Dividend, Divisor) ->
                 end}
     end.
 
--file("src/gleam/int.gleam", 638).
+-file("src/gleam/int.gleam", 554).
 ?DOC(
     " Computes the modulo of an integer division of inputs as a `Result`.\n"
     "\n"
@@ -730,33 +629,27 @@ remainder(Dividend, Divisor) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " modulo(3, 2)\n"
-    " // -> Ok(1)\n"
+    " assert int.modulo(3, 2) == Ok(1)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " modulo(1, 0)\n"
-    " // -> Error(Nil)\n"
+    " assert int.modulo(1, 0) == Error(Nil)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " modulo(10, -1)\n"
-    " // -> Ok(0)\n"
+    " assert int.modulo(10, -1) == Ok(0)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " modulo(13, by: 3)\n"
-    " // -> Ok(1)\n"
+    " assert int.modulo(13, by: 3) == Ok(1)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " modulo(-13, by: 3)\n"
-    " // -> Ok(2)\n"
+    " assert int.modulo(-13, by: 3) == Ok(2)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " modulo(13, by: -3)\n"
-    " // -> Ok(-2)\n"
+    " assert int.modulo(13, by: -3) == Ok(-2)\n"
     " ```\n"
 ).
 -spec modulo(integer(), integer()) -> {ok, integer()} | {error, nil}.
@@ -779,7 +672,7 @@ modulo(Dividend, Divisor) ->
             end
     end.
 
--file("src/gleam/int.gleam", 682).
+-file("src/gleam/int.gleam", 594).
 ?DOC(
     " Performs a *floored* integer division, which means that the result will\n"
     " always be rounded towards negative infinity.\n"
@@ -793,23 +686,19 @@ modulo(Dividend, Divisor) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " floor_divide(1, 0)\n"
-    " // -> Error(Nil)\n"
+    " assert int.floor_divide(1, 0) == Error(Nil)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " floor_divide(5, 2)\n"
-    " // -> Ok(2)\n"
+    " assert int.floor_divide(5, 2) == Ok(2)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " floor_divide(6, -4)\n"
-    " // -> Ok(-2)\n"
+    " assert int.floor_divide(6, -4) == Ok(-2)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " floor_divide(-99, 2)\n"
-    " // -> Ok(-50)\n"
+    " assert int.floor_divide(-99, 2) == Ok(-50)\n"
     " ```\n"
 ).
 -spec floor_divide(integer(), integer()) -> {ok, integer()} | {error, nil}.
@@ -837,7 +726,7 @@ floor_divide(Dividend, Divisor) ->
             end
     end.
 
--file("src/gleam/int.gleam", 716).
+-file("src/gleam/int.gleam", 626).
 ?DOC(
     " Adds two integers together.\n"
     "\n"
@@ -847,26 +736,24 @@ floor_divide(Dividend, Divisor) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " add(1, 2)\n"
-    " // -> 3\n"
+    " assert int.add(1, 2) == 3\n"
     " ```\n"
     "\n"
     " ```gleam\n"
     " import gleam/list\n"
-    " list.fold([1, 2, 3], 0, add)\n"
-    " // -> 6\n"
+    "\n"
+    " assert list.fold([1, 2, 3], 0, int.add) == 6\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " 3 |> add(2)\n"
-    " // -> 5\n"
+    " assert 3 |> int.add(2) == 5\n"
     " ```\n"
 ).
 -spec add(integer(), integer()) -> integer().
 add(A, B) ->
     A + B.
 
--file("src/gleam/int.gleam", 744).
+-file("src/gleam/int.gleam", 651).
 ?DOC(
     " Multiplies two integers together.\n"
     "\n"
@@ -876,27 +763,24 @@ add(A, B) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " multiply(2, 4)\n"
-    " // -> 8\n"
+    " assert int.multiply(2, 4) == 8\n"
     " ```\n"
     "\n"
     " ```gleam\n"
     " import gleam/list\n"
     "\n"
-    " list.fold([2, 3, 4], 1, multiply)\n"
-    " // -> 24\n"
+    " assert list.fold([2, 3, 4], 1, int.multiply) == 24\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " 3 |> multiply(2)\n"
-    " // -> 6\n"
+    " assert 3 |> int.multiply(2) == 6\n"
     " ```\n"
 ).
 -spec multiply(integer(), integer()) -> integer().
 multiply(A, B) ->
     A * B.
 
--file("src/gleam/int.gleam", 777).
+-file("src/gleam/int.gleam", 680).
 ?DOC(
     " Subtracts one int from another.\n"
     "\n"
@@ -906,99 +790,186 @@ multiply(A, B) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " subtract(3, 1)\n"
-    " // -> 2\n"
+    " assert int.subtract(3, 1) == 2\n"
     " ```\n"
     "\n"
     " ```gleam\n"
     " import gleam/list\n"
     "\n"
-    " list.fold([1, 2, 3], 10, subtract)\n"
-    " // -> 4\n"
+    " assert list.fold([1, 2, 3], 10, int.subtract) == 4\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " 3 |> subtract(2)\n"
-    " // -> 1\n"
+    " assert 3 |> int.subtract(2) == 1\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " 3 |> subtract(2, _)\n"
-    " // -> -1\n"
+    " assert 3 |> int.subtract(2, _) == -1\n"
     " ```\n"
 ).
 -spec subtract(integer(), integer()) -> integer().
 subtract(A, B) ->
     A - B.
 
--file("src/gleam/int.gleam", 789).
+-file("src/gleam/int.gleam", 699).
 ?DOC(
     " Calculates the bitwise AND of its arguments.\n"
     "\n"
+    " Most the time you should use the bit array syntaxes instead of manipulating\n"
+    " bits as ints with bitwise functions.\n"
+    "\n"
+    " ## Target specific behaviour\n"
+    "\n"
     " The exact behaviour of this function depends on the target platform.\n"
     " On Erlang it is equivalent to bitwise operations on ints, on JavaScript it\n"
-    " is equivalent to bitwise operations on big-ints.\n"
+    " is equivalent to bitwise operations on big-ints. If you need to avoid the\n"
+    " overhead of big-ints on JavaScript use bit arrays or another package that\n"
+    " provides faster bitwise operations.\n"
 ).
 -spec bitwise_and(integer(), integer()) -> integer().
 bitwise_and(X, Y) ->
     erlang:'band'(X, Y).
 
--file("src/gleam/int.gleam", 799).
+-file("src/gleam/int.gleam", 716).
 ?DOC(
     " Calculates the bitwise NOT of its argument.\n"
     "\n"
+    " Most the time you should use the bit array syntaxes instead of manipulating\n"
+    " bits as ints with bitwise functions.\n"
+    "\n"
+    " ## Target specific behaviour\n"
+    "\n"
     " The exact behaviour of this function depends on the target platform.\n"
     " On Erlang it is equivalent to bitwise operations on ints, on JavaScript it\n"
-    " is equivalent to bitwise operations on big-ints.\n"
+    " is equivalent to bitwise operations on big-ints. If you need to avoid the\n"
+    " overhead of big-ints on JavaScript use bit arrays or another package that\n"
+    " provides faster bitwise operations.\n"
 ).
 -spec bitwise_not(integer()) -> integer().
 bitwise_not(X) ->
     erlang:'bnot'(X).
 
--file("src/gleam/int.gleam", 809).
+-file("src/gleam/int.gleam", 733).
 ?DOC(
     " Calculates the bitwise OR of its arguments.\n"
     "\n"
+    " Most the time you should use the bit array syntaxes instead of manipulating\n"
+    " bits as ints with bitwise functions.\n"
+    "\n"
+    " ## Target specific behaviour\n"
+    "\n"
     " The exact behaviour of this function depends on the target platform.\n"
     " On Erlang it is equivalent to bitwise operations on ints, on JavaScript it\n"
-    " is equivalent to bitwise operations on big-ints.\n"
+    " is equivalent to bitwise operations on big-ints. If you need to avoid the\n"
+    " overhead of big-ints on JavaScript use bit arrays or another package that\n"
+    " provides faster bitwise operations.\n"
 ).
 -spec bitwise_or(integer(), integer()) -> integer().
 bitwise_or(X, Y) ->
     erlang:'bor'(X, Y).
 
--file("src/gleam/int.gleam", 819).
+-file("src/gleam/int.gleam", 750).
 ?DOC(
     " Calculates the bitwise XOR of its arguments.\n"
     "\n"
+    " Most the time you should use the bit array syntaxes instead of manipulating\n"
+    " bits as ints with bitwise functions.\n"
+    "\n"
+    " ## Target specific behaviour\n"
+    "\n"
     " The exact behaviour of this function depends on the target platform.\n"
     " On Erlang it is equivalent to bitwise operations on ints, on JavaScript it\n"
-    " is equivalent to bitwise operations on big-ints.\n"
+    " is equivalent to bitwise operations on big-ints. If you need to avoid the\n"
+    " overhead of big-ints on JavaScript use bit arrays or another package that\n"
+    " provides faster bitwise operations.\n"
 ).
 -spec bitwise_exclusive_or(integer(), integer()) -> integer().
 bitwise_exclusive_or(X, Y) ->
     erlang:'bxor'(X, Y).
 
--file("src/gleam/int.gleam", 829).
+-file("src/gleam/int.gleam", 767).
 ?DOC(
     " Calculates the result of an arithmetic left bitshift.\n"
     "\n"
+    " Most the time you should use the bit array syntaxes instead of manipulating\n"
+    " bits as ints with bitwise functions.\n"
+    "\n"
+    " ## Target specific behaviour\n"
+    "\n"
     " The exact behaviour of this function depends on the target platform.\n"
     " On Erlang it is equivalent to bitwise operations on ints, on JavaScript it\n"
-    " is equivalent to bitwise operations on big-ints.\n"
+    " is equivalent to bitwise operations on big-ints. If you need to avoid the\n"
+    " overhead of big-ints on JavaScript use bit arrays or another package that\n"
+    " provides faster bitwise operations.\n"
 ).
 -spec bitwise_shift_left(integer(), integer()) -> integer().
 bitwise_shift_left(X, Y) ->
     erlang:'bsl'(X, Y).
 
--file("src/gleam/int.gleam", 839).
+-file("src/gleam/int.gleam", 784).
 ?DOC(
     " Calculates the result of an arithmetic right bitshift.\n"
     "\n"
+    " Most the time you should use the bit array syntaxes instead of manipulating\n"
+    " bits as ints with bitwise functions.\n"
+    "\n"
+    " ## Target specific behaviour\n"
+    "\n"
     " The exact behaviour of this function depends on the target platform.\n"
     " On Erlang it is equivalent to bitwise operations on ints, on JavaScript it\n"
-    " is equivalent to bitwise operations on big-ints.\n"
+    " is equivalent to bitwise operations on big-ints. If you need to avoid the\n"
+    " overhead of big-ints on JavaScript use bit arrays or another package that\n"
+    " provides faster bitwise operations.\n"
 ).
 -spec bitwise_shift_right(integer(), integer()) -> integer().
 bitwise_shift_right(X, Y) ->
     erlang:'bsr'(X, Y).
+
+-file("src/gleam/int.gleam", 816).
+-spec range_loop(
+    integer(),
+    integer(),
+    integer(),
+    CM,
+    fun((CM, integer()) -> CM)
+) -> CM.
+range_loop(Current, Stop, Increment, Acc, Reducer) ->
+    case Current =:= Stop of
+        true ->
+            Acc;
+
+        false ->
+            Acc@1 = Reducer(Acc, Current),
+            Current@1 = Current + Increment,
+            range_loop(Current@1, Stop, Increment, Acc@1, Reducer)
+    end.
+
+-file("src/gleam/int.gleam", 803).
+?DOC(
+    " Run a function for each int between ints `from` and `to`.\n"
+    "\n"
+    " `from` is inclusive, and `to` is exclusive.\n"
+    "\n"
+    " ## Examples\n"
+    "\n"
+    " ```gleam\n"
+    " assert int.range(from: 0, to: 3, with: \"\", run: fn(acc, i) {\n"
+    "     acc <> int.to_string(i)\n"
+    "   })\n"
+    "   == \"012\"\n"
+    " ```\n"
+    "\n"
+    " ```gleam\n"
+    " assert int.range(from: 1, to: -2, with: [], run: list.prepend) == [-1, 0, 1]\n"
+    " ```\n"
+).
+-spec range(integer(), integer(), CL, fun((CL, integer()) -> CL)) -> CL.
+range(Start, Stop, Acc, Reducer) ->
+    Increment = case Start < Stop of
+        true ->
+            1;
+
+        false ->
+            -1
+    end,
+    range_loop(Start, Stop, Increment, Acc, Reducer).

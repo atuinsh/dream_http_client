@@ -1,1 +1,0 @@
--record(playback, {directory :: binary()}).

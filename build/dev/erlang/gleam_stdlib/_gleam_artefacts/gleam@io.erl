@@ -11,7 +11,7 @@
 -define(DOC(Str), -compile([])).
 -endif.
 
--file("src/gleam/io.gleam", 15).
+-file("src/gleam/io.gleam", 14).
 ?DOC(
     " Writes a string to standard output (stdout).\n"
     "\n"
@@ -20,8 +20,7 @@
     " ## Example\n"
     "\n"
     " ```gleam\n"
-    " io.print(\"Hi mum\")\n"
-    " // -> Nil\n"
+    " assert io.print(\"Hi mum\") == Nil\n"
     " // Hi mum\n"
     " ```\n"
 ).
@@ -29,7 +28,7 @@
 print(String) ->
     gleam_stdlib:print(String).
 
--file("src/gleam/io.gleam", 31).
+-file("src/gleam/io.gleam", 29).
 ?DOC(
     " Writes a string to standard error (stderr).\n"
     "\n"
@@ -37,9 +36,8 @@ print(String) ->
     "\n"
     " ## Example\n"
     "\n"
-    " ```\n"
-    " io.print_error(\"Hi pop\")\n"
-    " // -> Nil\n"
+    " ```gleam\n"
+    " assert io.print_error(\"Hi pop\") == Nil\n"
     " // Hi pop\n"
     " ```\n"
 ).
@@ -47,15 +45,14 @@ print(String) ->
 print_error(String) ->
     gleam_stdlib:print_error(String).
 
--file("src/gleam/io.gleam", 45).
+-file("src/gleam/io.gleam", 42).
 ?DOC(
     " Writes a string to standard output (stdout), appending a newline to the end.\n"
     "\n"
     " ## Example\n"
     "\n"
     " ```gleam\n"
-    " io.println(\"Hi mum\")\n"
-    " // -> Nil\n"
+    " assert io.println(\"Hi mum\") == Nil\n"
     " // Hi mum\n"
     " ```\n"
 ).
@@ -63,15 +60,14 @@ print_error(String) ->
 println(String) ->
     gleam_stdlib:println(String).
 
--file("src/gleam/io.gleam", 59).
+-file("src/gleam/io.gleam", 55).
 ?DOC(
     " Writes a string to standard error (stderr), appending a newline to the end.\n"
     "\n"
     " ## Example\n"
     "\n"
     " ```gleam\n"
-    " io.println_error(\"Hi pop\")\n"
-    " // -> Nil\n"
+    " assert io.println_error(\"Hi pop\") == Nil\n"
     " // Hi pop\n"
     " ```\n"
 ).

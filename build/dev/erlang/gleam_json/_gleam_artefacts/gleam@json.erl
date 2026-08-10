@@ -41,7 +41,7 @@
     " Error(UnableToDecode([decode.DecodeError(\"String\", \"Int\", [])])),\n"
     " ```\n"
 ).
--spec parse_bits(bitstring(), gleam@dynamic@decode:decoder(FEP)) -> {ok, FEP} |
+-spec parse_bits(bitstring(), gleam@dynamic@decode:decoder(FDN)) -> {ok, FDN} |
     {error, decode_error()}.
 parse_bits(Json, Decoder) ->
     gleam@result:'try'(
@@ -56,7 +56,7 @@ parse_bits(Json, Decoder) ->
     ).
 
 -file("src/gleam/json.gleam", 47).
--spec do_parse(binary(), gleam@dynamic@decode:decoder(FEJ)) -> {ok, FEJ} |
+-spec do_parse(binary(), gleam@dynamic@decode:decoder(FDH)) -> {ok, FDH} |
     {error, decode_error()}.
 do_parse(Json, Decoder) ->
     Bits = gleam_stdlib:identity(Json),
@@ -84,7 +84,7 @@ do_parse(Json, Decoder) ->
     " Error(UnableToDecode([decode.DecodeError(\"String\", \"Int\", [])]))\n"
     " ```\n"
 ).
--spec parse(binary(), gleam@dynamic@decode:decoder(FEF)) -> {ok, FEF} |
+-spec parse(binary(), gleam@dynamic@decode:decoder(FDD)) -> {ok, FDD} |
     {error, decode_error()}.
 parse(Json, Decoder) ->
     do_parse(Json, Decoder).
@@ -217,7 +217,7 @@ null() ->
     " \"null\"\n"
     " ```\n"
 ).
--spec nullable(gleam@option:option(FEV), fun((FEV) -> json())) -> json().
+-spec nullable(gleam@option:option(FDT), fun((FDT) -> json())) -> json().
 nullable(Input, Inner_type) ->
     case Input of
         {some, Value} ->
@@ -271,7 +271,7 @@ preprocessed_array(From) ->
     " \"[1, 2, 3]\"\n"
     " ```\n"
 ).
--spec array(list(FEZ), fun((FEZ) -> json())) -> json().
+-spec array(list(FDX), fun((FDX) -> json())) -> json().
 array(Entries, Inner_type) ->
     _pipe = Entries,
     _pipe@1 = gleam@list:map(_pipe, Inner_type),
@@ -290,9 +290,9 @@ array(Entries, Inner_type) ->
     " ```\n"
 ).
 -spec dict(
-    gleam@dict:dict(FFD, FFE),
-    fun((FFD) -> binary()),
-    fun((FFE) -> json())
+    gleam@dict:dict(FEB, FEC),
+    fun((FEB) -> binary()),
+    fun((FEC) -> json())
 ) -> json().
 dict(Dict, Keys, Values) ->
     object(

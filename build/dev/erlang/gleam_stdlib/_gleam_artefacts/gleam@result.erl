@@ -1,7 +1,7 @@
 -module(gleam@result).
 -compile([no_auto_import, nowarn_unused_vars, nowarn_unused_function, nowarn_nomatch, inline]).
 -define(FILEPATH, "src/gleam/result.gleam").
--export([is_ok/1, is_error/1, map/2, map_error/2, flatten/1, 'try'/2, then/2, unwrap/2, lazy_unwrap/2, unwrap_error/2, unwrap_both/1, 'or'/2, lazy_or/2, all/1, partition/1, replace/2, replace_error/2, values/1, try_recover/2]).
+-export([is_ok/1, is_error/1, map/2, map_error/2, flatten/1, 'try'/2, unwrap/2, lazy_unwrap/2, unwrap_error/2, 'or'/2, lazy_or/2, all/1, partition/1, replace/2, replace_error/2, values/1, try_recover/2]).
 
 -if(?OTP_RELEASE >= 27).
 -define(MODULEDOC(Str), -moduledoc(Str)).
@@ -16,20 +16,18 @@
     " `Ok` means it was successful, `Error` means it was not successful.\n"
 ).
 
--file("src/gleam/result.gleam", 20).
+-file("src/gleam/result.gleam", 18).
 ?DOC(
     " Checks whether the result is an `Ok` value.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " is_ok(Ok(1))\n"
-    " // -> True\n"
+    " assert result.is_ok(Ok(1))\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " is_ok(Error(Nil))\n"
-    " // -> False\n"
+    " assert !result.is_ok(Error(Nil))\n"
     " ```\n"
 ).
 -spec is_ok({ok, any()} | {error, any()}) -> boolean().
@@ -42,20 +40,18 @@ is_ok(Result) ->
             true
     end.
 
--file("src/gleam/result.gleam", 41).
+-file("src/gleam/result.gleam", 37).
 ?DOC(
     " Checks whether the result is an `Error` value.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " is_error(Ok(1))\n"
-    " // -> False\n"
+    " assert !result.is_error(Ok(1))\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " is_error(Error(Nil))\n"
-    " // -> True\n"
+    " assert result.is_error(Error(Nil))\n"
     " ```\n"
 ).
 -spec is_error({ok, any()} | {error, any()}) -> boolean().
@@ -68,7 +64,7 @@ is_error(Result) ->
             true
     end.
 
--file("src/gleam/result.gleam", 66).
+-file("src/gleam/result.gleam", 60).
 ?DOC(
     " Updates a value held within the `Ok` of a result by calling a given function\n"
     " on it.\n"
@@ -79,17 +75,15 @@ is_error(Result) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " map(over: Ok(1), with: fn(x) { x + 1 })\n"
-    " // -> Ok(2)\n"
+    " assert result.map(over: Ok(1), with: fn(x) { x + 1 }) == Ok(2)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " map(over: Error(1), with: fn(x) { x + 1 })\n"
-    " // -> Error(1)\n"
+    " assert result.map(over: Error(1), with: fn(x) { x + 1 }) == Error(1)\n"
     " ```\n"
 ).
--spec map({ok, CME} | {error, CMF}, fun((CME) -> CMI)) -> {ok, CMI} |
-    {error, CMF}.
+-spec map({ok, CMW} | {error, CMX}, fun((CMW) -> CNA)) -> {ok, CNA} |
+    {error, CMX}.
 map(Result, Fun) ->
     case Result of
         {ok, X} ->
@@ -99,7 +93,7 @@ map(Result, Fun) ->
             {error, E}
     end.
 
--file("src/gleam/result.gleam", 91).
+-file("src/gleam/result.gleam", 83).
 ?DOC(
     " Updates a value held within the `Error` of a result by calling a given function\n"
     " on it.\n"
@@ -110,17 +104,15 @@ map(Result, Fun) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " map_error(over: Error(1), with: fn(x) { x + 1 })\n"
-    " // -> Error(2)\n"
+    " assert result.map_error(over: Error(1), with: fn(x) { x + 1 }) == Error(2)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " map_error(over: Ok(1), with: fn(x) { x + 1 })\n"
-    " // -> Ok(1)\n"
+    " assert result.map_error(over: Ok(1), with: fn(x) { x + 1 }) == Ok(1)\n"
     " ```\n"
 ).
--spec map_error({ok, CML} | {error, CMM}, fun((CMM) -> CMP)) -> {ok, CML} |
-    {error, CMP}.
+-spec map_error({ok, CND} | {error, CNE}, fun((CNE) -> CNH)) -> {ok, CND} |
+    {error, CNH}.
 map_error(Result, Fun) ->
     case Result of
         {ok, X} ->
@@ -130,29 +122,26 @@ map_error(Result, Fun) ->
             {error, Fun(Error)}
     end.
 
--file("src/gleam/result.gleam", 120).
+-file("src/gleam/result.gleam", 109).
 ?DOC(
     " Merges a nested `Result` into a single layer.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " flatten(Ok(Ok(1)))\n"
-    " // -> Ok(1)\n"
+    " assert result.flatten(Ok(Ok(1))) == Ok(1)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " flatten(Ok(Error(\"\")))\n"
-    " // -> Error(\"\")\n"
+    " assert result.flatten(Ok(Error(\"\"))) == Error(\"\")\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " flatten(Error(Nil))\n"
-    " // -> Error(Nil)\n"
+    " assert result.flatten(Error(Nil)) == Error(Nil)\n"
     " ```\n"
 ).
--spec flatten({ok, {ok, CMS} | {error, CMT}} | {error, CMT}) -> {ok, CMS} |
-    {error, CMT}.
+-spec flatten({ok, {ok, CNK} | {error, CNL}} | {error, CNL}) -> {ok, CNK} |
+    {error, CNL}.
 flatten(Result) ->
     case Result of
         {ok, X} ->
@@ -162,7 +151,7 @@ flatten(Result) ->
             {error, Error}
     end.
 
--file("src/gleam/result.gleam", 158).
+-file("src/gleam/result.gleam", 143).
 ?DOC(
     " \"Updates\" an `Ok` result by passing its value to a function that yields a result,\n"
     " and returning the yielded result. (This may \"replace\" the `Ok` with an `Error`.)\n"
@@ -176,28 +165,24 @@ flatten(Result) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " try(Ok(1), fn(x) { Ok(x + 1) })\n"
-    " // -> Ok(2)\n"
+    " assert result.try(Ok(1), fn(x) { Ok(x + 1) }) == Ok(2)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " try(Ok(1), fn(x) { Ok(#(\"a\", x)) })\n"
-    " // -> Ok(#(\"a\", 1))\n"
+    " assert result.try(Ok(1), fn(x) { Ok(#(\"a\", x)) }) == Ok(#(\"a\", 1))\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " try(Ok(1), fn(_) { Error(\"Oh no\") })\n"
-    " // -> Error(\"Oh no\")\n"
+    " assert result.try(Ok(1), fn(_) { Error(\"Oh no\") }) == Error(\"Oh no\")\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " try(Error(Nil), fn(x) { Ok(x + 1) })\n"
-    " // -> Error(Nil)\n"
+    " assert result.try(Error(Nil), fn(x) { Ok(x + 1) }) == Error(Nil)\n"
     " ```\n"
 ).
--spec 'try'({ok, CNA} | {error, CNB}, fun((CNA) -> {ok, CNE} | {error, CNB})) -> {ok,
-        CNE} |
-    {error, CNB}.
+-spec 'try'({ok, CNS} | {error, CNT}, fun((CNS) -> {ok, CNW} | {error, CNT})) -> {ok,
+        CNW} |
+    {error, CNT}.
 'try'(Result, Fun) ->
     case Result of
         {ok, X} ->
@@ -207,14 +192,7 @@ flatten(Result) ->
             {error, E}
     end.
 
--file("src/gleam/result.gleam", 169).
--spec then({ok, CNJ} | {error, CNK}, fun((CNJ) -> {ok, CNN} | {error, CNK})) -> {ok,
-        CNN} |
-    {error, CNK}.
-then(Result, Fun) ->
-    'try'(Result, Fun).
-
--file("src/gleam/result.gleam", 191).
+-file("src/gleam/result.gleam", 166).
 ?DOC(
     " Extracts the `Ok` value from a result, returning a default value if the result\n"
     " is an `Error`.\n"
@@ -222,16 +200,14 @@ then(Result, Fun) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " unwrap(Ok(1), 0)\n"
-    " // -> 1\n"
+    " assert result.unwrap(Ok(1), 0) == 1\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " unwrap(Error(\"\"), 0)\n"
-    " // -> 0\n"
+    " assert result.unwrap(Error(\"\"), 0) == 0\n"
     " ```\n"
 ).
--spec unwrap({ok, CNS} | {error, any()}, CNS) -> CNS.
+-spec unwrap({ok, COB} | {error, any()}, COB) -> COB.
 unwrap(Result, Default) ->
     case Result of
         {ok, V} ->
@@ -241,7 +217,7 @@ unwrap(Result, Default) ->
             Default
     end.
 
--file("src/gleam/result.gleam", 213).
+-file("src/gleam/result.gleam", 186).
 ?DOC(
     " Extracts the `Ok` value from a result, evaluating the default function if the result\n"
     " is an `Error`.\n"
@@ -249,16 +225,14 @@ unwrap(Result, Default) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " lazy_unwrap(Ok(1), fn() { 0 })\n"
-    " // -> 1\n"
+    " assert result.lazy_unwrap(Ok(1), fn() { 0 }) == 1\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " lazy_unwrap(Error(\"\"), fn() { 0 })\n"
-    " // -> 0\n"
+    " assert result.lazy_unwrap(Error(\"\"), fn() { 0 }) == 0\n"
     " ```\n"
 ).
--spec lazy_unwrap({ok, CNW} | {error, any()}, fun(() -> CNW)) -> CNW.
+-spec lazy_unwrap({ok, COF} | {error, any()}, fun(() -> COF)) -> COF.
 lazy_unwrap(Result, Default) ->
     case Result of
         {ok, V} ->
@@ -268,7 +242,7 @@ lazy_unwrap(Result, Default) ->
             Default()
     end.
 
--file("src/gleam/result.gleam", 235).
+-file("src/gleam/result.gleam", 206).
 ?DOC(
     " Extracts the `Error` value from a result, returning a default value if the result\n"
     " is an `Ok`.\n"
@@ -276,16 +250,14 @@ lazy_unwrap(Result, Default) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " unwrap_error(Error(1), 0)\n"
-    " // -> 1\n"
+    " assert result.unwrap_error(Error(1), 0) == 1\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " unwrap_error(Ok(\"\"), 0)\n"
-    " // -> 0\n"
+    " assert result.unwrap_error(Ok(\"\"), 0) == 0\n"
     " ```\n"
 ).
--spec unwrap_error({ok, any()} | {error, COB}, COB) -> COB.
+-spec unwrap_error({ok, any()} | {error, COK}, COK) -> COK.
 unwrap_error(Result, Default) ->
     case Result of
         {ok, _} ->
@@ -295,45 +267,30 @@ unwrap_error(Result, Default) ->
             E
     end.
 
--file("src/gleam/result.gleam", 243).
--spec unwrap_both({ok, COE} | {error, COE}) -> COE.
-unwrap_both(Result) ->
-    case Result of
-        {ok, A} ->
-            A;
-
-        {error, A@1} ->
-            A@1
-    end.
-
--file("src/gleam/result.gleam", 274).
+-file("src/gleam/result.gleam", 233).
 ?DOC(
     " Returns the first value if it is `Ok`, otherwise returns the second value.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " or(Ok(1), Ok(2))\n"
-    " // -> Ok(1)\n"
+    " assert result.or(Ok(1), Ok(2)) == Ok(1)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " or(Ok(1), Error(\"Error 2\"))\n"
-    " // -> Ok(1)\n"
+    " assert result.or(Ok(1), Error(\"Error 2\")) == Ok(1)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " or(Error(\"Error 1\"), Ok(2))\n"
-    " // -> Ok(2)\n"
+    " assert result.or(Error(\"Error 1\"), Ok(2)) == Ok(2)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " or(Error(\"Error 1\"), Error(\"Error 2\"))\n"
-    " // -> Error(\"Error 2\")\n"
+    " assert result.or(Error(\"Error 1\"), Error(\"Error 2\")) == Error(\"Error 2\")\n"
     " ```\n"
 ).
--spec 'or'({ok, COH} | {error, COI}, {ok, COH} | {error, COI}) -> {ok, COH} |
-    {error, COI}.
+-spec 'or'({ok, CON} | {error, COO}, {ok, CON} | {error, COO}) -> {ok, CON} |
+    {error, COO}.
 'or'(First, Second) ->
     case First of
         {ok, _} ->
@@ -343,7 +300,7 @@ unwrap_both(Result) ->
             Second
     end.
 
--file("src/gleam/result.gleam", 307).
+-file("src/gleam/result.gleam", 263).
 ?DOC(
     " Returns the first value if it is `Ok`, otherwise evaluates the given function for a fallback value.\n"
     "\n"
@@ -352,28 +309,25 @@ unwrap_both(Result) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " lazy_or(Ok(1), fn() { Ok(2) })\n"
-    " // -> Ok(1)\n"
+    " assert result.lazy_or(Ok(1), fn() { Ok(2) }) == Ok(1)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " lazy_or(Ok(1), fn() { Error(\"Error 2\") })\n"
-    " // -> Ok(1)\n"
+    " assert result.lazy_or(Ok(1), fn() { Error(\"Error 2\") }) == Ok(1)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " lazy_or(Error(\"Error 1\"), fn() { Ok(2) })\n"
-    " // -> Ok(2)\n"
+    " assert result.lazy_or(Error(\"Error 1\"), fn() { Ok(2) }) == Ok(2)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " lazy_or(Error(\"Error 1\"), fn() { Error(\"Error 2\") })\n"
-    " // -> Error(\"Error 2\")\n"
+    " assert result.lazy_or(Error(\"Error 1\"), fn() { Error(\"Error 2\") })\n"
+    "   == Error(\"Error 2\")\n"
     " ```\n"
 ).
--spec lazy_or({ok, COP} | {error, COQ}, fun(() -> {ok, COP} | {error, COQ})) -> {ok,
-        COP} |
-    {error, COQ}.
+-spec lazy_or({ok, COV} | {error, COW}, fun(() -> {ok, COV} | {error, COW})) -> {ok,
+        COV} |
+    {error, COW}.
 lazy_or(First, Second) ->
     case First of
         {ok, _} ->
@@ -383,7 +337,7 @@ lazy_or(First, Second) ->
             Second()
     end.
 
--file("src/gleam/result.gleam", 333).
+-file("src/gleam/result.gleam", 287).
 ?DOC(
     " Combines a list of results into a single result.\n"
     " If all elements in the list are `Ok` then returns an `Ok` holding the list of values.\n"
@@ -392,22 +346,20 @@ lazy_or(First, Second) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " all([Ok(1), Ok(2)])\n"
-    " // -> Ok([1, 2])\n"
+    " assert result.all([Ok(1), Ok(2)]) == Ok([1, 2])\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " all([Ok(1), Error(\"e\")])\n"
-    " // -> Error(\"e\")\n"
+    " assert result.all([Ok(1), Error(\"e\")]) == Error(\"e\")\n"
     " ```\n"
 ).
--spec all(list({ok, COX} | {error, COY})) -> {ok, list(COX)} | {error, COY}.
+-spec all(list({ok, CPD} | {error, CPE})) -> {ok, list(CPD)} | {error, CPE}.
 all(Results) ->
     gleam@list:try_map(Results, fun(Result) -> Result end).
 
--file("src/gleam/result.gleam", 353).
--spec partition_loop(list({ok, CPM} | {error, CPN}), list(CPM), list(CPN)) -> {list(CPM),
-    list(CPN)}.
+-file("src/gleam/result.gleam", 307).
+-spec partition_loop(list({ok, CPS} | {error, CPT}), list(CPS), list(CPT)) -> {list(CPS),
+    list(CPT)}.
 partition_loop(Results, Oks, Errors) ->
     case Results of
         [] ->
@@ -420,7 +372,7 @@ partition_loop(Results, Oks, Errors) ->
             partition_loop(Rest@1, Oks, [E | Errors])
     end.
 
--file("src/gleam/result.gleam", 349).
+-file("src/gleam/result.gleam", 303).
 ?DOC(
     " Given a list of results, returns a pair where the first element is a list\n"
     " of all the values inside `Ok` and the second element is a list with all the\n"
@@ -430,31 +382,29 @@ partition_loop(Results, Oks, Errors) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " partition([Ok(1), Error(\"a\"), Error(\"b\"), Ok(2)])\n"
-    " // -> #([2, 1], [\"b\", \"a\"])\n"
+    " assert result.partition([Ok(1), Error(\"a\"), Error(\"b\"), Ok(2)])\n"
+    "   == #([2, 1], [\"b\", \"a\"])\n"
     " ```\n"
 ).
--spec partition(list({ok, CPF} | {error, CPG})) -> {list(CPF), list(CPG)}.
+-spec partition(list({ok, CPL} | {error, CPM})) -> {list(CPL), list(CPM)}.
 partition(Results) ->
     partition_loop(Results, [], []).
 
--file("src/gleam/result.gleam", 375).
+-file("src/gleam/result.gleam", 327).
 ?DOC(
     " Replace the value within a result\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " replace(Ok(1), Nil)\n"
-    " // -> Ok(Nil)\n"
+    " assert result.replace(Ok(1), Nil) == Ok(Nil)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " replace(Error(1), Nil)\n"
-    " // -> Error(1)\n"
+    " assert result.replace(Error(1), Nil) == Error(1)\n"
     " ```\n"
 ).
--spec replace({ok, any()} | {error, CPV}, CPY) -> {ok, CPY} | {error, CPV}.
+-spec replace({ok, any()} | {error, CQB}, CQE) -> {ok, CQE} | {error, CQB}.
 replace(Result, Value) ->
     case Result of
         {ok, _} ->
@@ -464,23 +414,21 @@ replace(Result, Value) ->
             {error, Error}
     end.
 
--file("src/gleam/result.gleam", 396).
+-file("src/gleam/result.gleam", 346).
 ?DOC(
     " Replace the error within a result\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " replace_error(Error(1), Nil)\n"
-    " // -> Error(Nil)\n"
+    " assert result.replace_error(Error(1), Nil) == Error(Nil)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " replace_error(Ok(1), Nil)\n"
-    " // -> Ok(1)\n"
+    " assert result.replace_error(Ok(1), Nil) == Ok(1)\n"
     " ```\n"
 ).
--spec replace_error({ok, CQB} | {error, any()}, CQF) -> {ok, CQB} | {error, CQF}.
+-spec replace_error({ok, CQH} | {error, any()}, CQL) -> {ok, CQH} | {error, CQL}.
 replace_error(Result, Error) ->
     case Result of
         {ok, X} ->
@@ -490,22 +438,21 @@ replace_error(Result, Error) ->
             {error, Error}
     end.
 
--file("src/gleam/result.gleam", 412).
+-file("src/gleam/result.gleam", 361).
 ?DOC(
     " Given a list of results, returns only the values inside `Ok`.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " values([Ok(1), Error(\"a\"), Ok(3)])\n"
-    " // -> [1, 3]\n"
+    " assert result.values([Ok(1), Error(\"a\"), Ok(3)]) == [1, 3]\n"
     " ```\n"
 ).
--spec values(list({ok, CQI} | {error, any()})) -> list(CQI).
+-spec values(list({ok, CQO} | {error, any()})) -> list(CQO).
 values(Results) ->
     gleam@list:filter_map(Results, fun(Result) -> Result end).
 
--file("src/gleam/result.gleam", 445).
+-file("src/gleam/result.gleam", 397).
 ?DOC(
     " Updates a value held within the `Error` of a result by calling a given function\n"
     " on it, where the given function also returns a result. The two results are\n"
@@ -522,24 +469,27 @@ values(Results) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " Ok(1) |> try_recover(with: fn(_) { Error(\"failed to recover\") })\n"
-    " // -> Ok(1)\n"
+    " assert Ok(1)\n"
+    "   |> result.try_recover(with: fn(_) { Error(\"failed to recover\") })\n"
+    "   == Ok(1)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " Error(1) |> try_recover(with: fn(error) { Ok(error + 1) })\n"
-    " // -> Ok(2)\n"
+    " assert Error(1)\n"
+    "   |> result.try_recover(with: fn(error) { Ok(error + 1) })\n"
+    "   == Ok(2)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " Error(1) |> try_recover(with: fn(error) { Error(\"failed to recover\") })\n"
-    " // -> Error(\"failed to recover\")\n"
+    " assert Error(1)\n"
+    "   |> result.try_recover(with: fn(error) { Error(\"failed to recover\") })\n"
+    "   == Error(\"failed to recover\")\n"
     " ```\n"
 ).
 -spec try_recover(
-    {ok, CQO} | {error, CQP},
-    fun((CQP) -> {ok, CQO} | {error, CQS})
-) -> {ok, CQO} | {error, CQS}.
+    {ok, CQU} | {error, CQV},
+    fun((CQV) -> {ok, CQU} | {error, CQY})
+) -> {ok, CQU} | {error, CQY}.
 try_recover(Result, Fun) ->
     case Result of
         {ok, Value} ->
