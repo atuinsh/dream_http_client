@@ -16,8 +16,8 @@
 
 -type child_type() :: {worker, integer()} | supervisor.
 
--type child_specification(GAC) :: {child_specification,
-        fun(() -> {ok, gleam@otp@actor:started(GAC)} |
+-type child_specification(FZA) :: {child_specification,
+        fun(() -> {ok, gleam@otp@actor:started(FZA)} |
             {error, gleam@otp@actor:start_error()}),
         restart(),
         boolean(),
@@ -33,9 +33,9 @@
     " `timeout` function.\n"
 ).
 -spec worker(
-    fun(() -> {ok, gleam@otp@actor:started(GAD)} |
+    fun(() -> {ok, gleam@otp@actor:started(FZB)} |
         {error, gleam@otp@actor:start_error()})
-) -> child_specification(GAD).
+) -> child_specification(FZB).
 worker(Start) ->
     {child_specification, Start, permanent, false, {worker, 5000}}.
 
@@ -46,9 +46,9 @@ worker(Start) ->
     " Supervisor children have an unlimited shutdown time, there is no timeout.\n"
 ).
 -spec supervisor(
-    fun(() -> {ok, gleam@otp@actor:started(GAI)} |
+    fun(() -> {ok, gleam@otp@actor:started(FZG)} |
         {error, gleam@otp@actor:start_error()})
-) -> child_specification(GAI).
+) -> child_specification(FZG).
 supervisor(Start) ->
     {child_specification, Start, permanent, false, supervisor}.
 
@@ -64,7 +64,7 @@ supervisor(Start) ->
     "\n"
     " The default value for significance is `False`.\n"
 ).
--spec significant(child_specification(GAN), boolean()) -> child_specification(GAN).
+-spec significant(child_specification(FZL), boolean()) -> child_specification(FZL).
 significant(Child, Significant) ->
     {child_specification,
         erlang:element(2, Child),
@@ -81,7 +81,7 @@ significant(Child, Significant) ->
     "\n"
     " This will be ignored if the child is a supervisor itself.\n"
 ).
--spec timeout(child_specification(GAQ), integer()) -> child_specification(GAQ).
+-spec timeout(child_specification(FZO), integer()) -> child_specification(FZO).
 timeout(Child, Ms) ->
     case erlang:element(5, Child) of
         {worker, _} ->
@@ -102,7 +102,7 @@ timeout(Child, Ms) ->
     "\n"
     " The default value for restart is `Permanent`.\n"
 ).
--spec restart(child_specification(GAT), restart()) -> child_specification(GAT).
+-spec restart(child_specification(FZR), restart()) -> child_specification(FZR).
 restart(Child, Restart) ->
     {child_specification,
         erlang:element(2, Child),
@@ -112,7 +112,7 @@ restart(Child, Restart) ->
 
 -file("src/gleam/otp/supervision.gleam", 133).
 ?DOC(" Transform the data of the started child process.\n").
--spec map_data(child_specification(GAW), fun((GAW) -> GAY)) -> child_specification(GAY).
+-spec map_data(child_specification(FZU), fun((FZU) -> FZW)) -> child_specification(FZW).
 map_data(Child, Transform) ->
     {child_specification, fun() -> case (erlang:element(2, Child))() of
                 {ok, Started} ->

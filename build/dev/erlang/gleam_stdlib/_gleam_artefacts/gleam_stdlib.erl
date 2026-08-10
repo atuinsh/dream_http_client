@@ -10,8 +10,9 @@
     println/1, print_error/1, println_error/1, inspect/1, float_to_string/1,
     int_from_base_string/2, utf_codepoint_list_to_string/1, contains_string/2,
     crop_string/2, base16_encode/1, base16_decode/1, string_replace/3, slice/3,
-    bit_array_to_int_and_size/1, bit_array_pad_to_bytes/1, index/2, list/5,
-    dict/1, int/1, float/1, bit_array/1, is_null/1
+    bit_array_to_int_and_size/1, index/2, list/5,
+    dict/1, int/1, float/1, bit_array/1, is_null/1, string_remove_prefix/2,
+    string_remove_suffix/2
 ]).
 
 %% Taken from OTP's uri_string module
@@ -63,12 +64,7 @@ classify_dynamic(X) when is_tuple(X) -> <<"Array">>;
 classify_dynamic(X) when is_reference(X) -> <<"Reference">>;
 classify_dynamic(X) when is_pid(X) -> <<"Pid">>;
 classify_dynamic(X) when is_port(X) -> <<"Port">>;
-classify_dynamic(X) when
-    is_function(X, 0) orelse is_function(X, 1) orelse is_function(X, 2) orelse
-    is_function(X, 3) orelse is_function(X, 4) orelse is_function(X, 5) orelse
-    is_function(X, 6) orelse is_function(X, 7) orelse is_function(X, 8) orelse
-    is_function(X, 9) orelse is_function(X, 10) orelse is_function(X, 11) orelse
-    is_function(X, 12) -> <<"Function">>;
+classify_dynamic(X) when is_function(X) -> <<"Function">>;
 classify_dynamic(_) -> <<"Unknown">>.
 
 tuple_get(_tup, Index) when Index < 0 -> {error, nil};
@@ -76,21 +72,24 @@ tuple_get(Data, Index) when Index >= tuple_size(Data) -> {error, nil};
 tuple_get(Data, Index) -> {ok, element(Index + 1, Data)}.
 
 int_from_base_string(String, Base) ->
-    case catch binary_to_integer(String, Base) of
+    try binary_to_integer(String, Base) of
         Int when is_integer(Int) -> {ok, Int};
         _ -> {error, nil}
+    catch _:_ -> {error, nil}
     end.
 
 parse_int(String) ->
-    case catch binary_to_integer(String) of
+    try binary_to_integer(String) of
         Int when is_integer(Int) -> {ok, Int};
         _ -> {error, nil}
+    catch _:_ -> {error, nil}
     end.
 
 parse_float(String) ->
-    case catch binary_to_float(String) of
+    try binary_to_float(String) of
         Float when is_float(Float) -> {ok, Float};
         _ -> {error, nil}
+    catch _:_ -> {error, nil}
     end.
 
 less_than(Lhs, Rhs) ->
@@ -129,20 +128,12 @@ string_pop_grapheme(String) ->
 string_pop_codeunit(<<Cp/integer, Rest/binary>>) -> {Cp, Rest};
 string_pop_codeunit(Binary) -> {0, Binary}.
 
-bit_array_pad_to_bytes(Bin) ->
-    case erlang:bit_size(Bin) rem 8 of
-        0 -> Bin;
-        TrailingBits ->
-            PaddingBits = 8 - TrailingBits,
-            <<Bin/bits, 0:PaddingBits>>
-    end.
-
 bit_array_concat(BitArrays) ->
     list_to_bitstring(BitArrays).
 
 -if(?OTP_RELEASE >= 26).
 base64_encode(Bin, Padding) ->
-    PaddedBin = bit_array_pad_to_bytes(Bin),
+    PaddedBin = gleam@bit_array:pad_to_bytes(Bin),
     base64:encode(PaddedBin, #{padding => Padding}).
 -else.
 base64_encode(_Bin, _Padding) ->
@@ -236,7 +227,7 @@ uri_parse(String) ->
                 catch _:_ -> none
                 end,
             {ok, {uri,
-                maps_get_optional(Uri, scheme),
+                maps_get_optional_lowercase(Uri, scheme),
                 maps_get_optional(Uri, userinfo),
                 maps_get_optional(Uri, host),
                 Port,
@@ -244,6 +235,11 @@ uri_parse(String) ->
                 maps_get_optional(Uri, query),
                 maps_get_optional(Uri, fragment)
             }}
+    end.
+
+maps_get_optional_lowercase(Map, Key) ->
+    try {some, string:lowercase(maps:get(Key, Map))}
+    catch _:_ -> none
     end.
 
 maps_get_optional(Map, Key) ->
@@ -449,7 +445,7 @@ contains_string(String, Substring) ->
     is_bitstring(string:find(String, Substring)).
 
 base16_encode(Bin) ->
-    PaddedBin = bit_array_pad_to_bytes(Bin),
+    PaddedBin = gleam@bit_array:pad_to_bytes(Bin),
     binary:encode_hex(PaddedBin).
 
 base16_decode(String) ->
@@ -532,3 +528,19 @@ bit_array(_) -> {error, <<>>}.
 
 is_null(X) ->
     X =:= undefined orelse X =:= null orelse X =:= nil.
+
+string_remove_prefix(String, Prefix) ->
+    PrefixSize = byte_size(Prefix),
+    case String of
+        <<Prefix:PrefixSize/binary, Suffix/binary>> -> Suffix;
+        _ -> String
+    end.
+
+string_remove_suffix(String, Suffix) ->
+    StringSize = byte_size(String),
+    SuffixSize = byte_size(Suffix),
+    Offset = StringSize - SuffixSize,
+    case String of
+        <<Prefix:Offset/binary, Suffix/binary>> -> Prefix;
+        _ -> String
+    end.

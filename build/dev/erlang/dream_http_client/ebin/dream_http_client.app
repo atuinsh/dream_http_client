@@ -1,5 +1,6 @@
 {application, dream_http_client, [
-    {vsn, "3.0.1"},
+    {mod, {'dream_http_client_app', []}},
+    {vsn, "5.1.3"},
     {applications, [gleam_crypto,
                     gleam_erlang,
                     gleam_http,
@@ -10,10 +11,16 @@
                     gleeunit,
                     simplifile]},
     {description, "Type-safe HTTP client for Gleam with streaming support"},
-    {modules, [dream_http_client@client,
+    {modules, [dream_http_client@@main,
+               dream_http_client@client,
+               dream_http_client@internal,
                dream_http_client@matching,
                dream_http_client@recorder,
                dream_http_client@recording,
-               dream_http_client@storage]},
+               dream_http_client@storage,
+               dream_http_client_app,
+               dream_http_client_fs_shim,
+               dream_http_client_sup,
+               dream_httpc_shim]},
     {registered, []}
 ]}.

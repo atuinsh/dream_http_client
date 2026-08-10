@@ -1,8 +1,8 @@
 -module(dream_http_client@client).
 -compile([no_auto_import, nowarn_unused_vars, nowarn_unused_function, nowarn_nomatch, inline]).
 -define(FILEPATH, "src/dream_http_client/client.gleam").
--export([method/2, scheme/2, host/2, port/2, path/2, 'query'/2, headers/2, body/2, recorder/2, timeout/2, on_stream_start/2, on_stream_chunk/2, on_stream_end/2, on_stream_error/2, add_header/3, get_method/1, get_scheme/1, get_host/1, get_port/1, get_path/1, get_query/1, get_headers/1, get_body/1, get_timeout/1, get_recorder/1, send/1, send_with_status/1, stream_yielder/1, start_stream/1, cancel_stream_handle/1, is_stream_active/1, await_stream/1, cancel_stream/1]).
--export_type([header/0, client_request/0, request_id/0, stream_message/0, stream_handle/0, yielder_state/0, recording_yielder_state/0, message_stream_recorder_state/0]).
+-export([new/0, method/2, scheme/2, host/2, port/2, path/2, 'query'/2, headers/2, body/2, recorder/2, timeout/2, on_stream_start/2, on_stream_chunk/2, on_stream_end/2, on_stream_error/2, add_header/3, get_method/1, get_scheme/1, get_host/1, get_port/1, get_path/1, get_query/1, get_headers/1, get_body/1, get_timeout/1, get_recorder/1, send/1, stream_yielder/1, start_stream/1, cancel_stream_handle/1, is_stream_active/1, await_stream/1, cancel_stream/1]).
+-export_type([header/0, http_response/0, send_error/0, client_request/0, request_id/0, stream_message/0, stream_handle/0, yielder_state/0, recording_yielder_state/0, message_stream_recorder_state/0]).
 
 -if(?OTP_RELEASE >= 27).
 -define(MODULEDOC(Str), -moduledoc(Str)).
@@ -13,155 +13,86 @@
 -endif.
 
 ?MODULEDOC(
-    " Type-safe HTTP client with streaming support\n"
+    " Type-safe HTTP client with recording + streaming support\n"
     "\n"
-    " Gleam doesn't have a built-in HTTPS client, so this module wraps Erlang's battle-hardened\n"
-    " `httpc`. Use this for calling external APIs, downloading files, streaming AI responses,\n"
-    " or building OTP-compatible services with concurrent HTTP streams.\n"
+    " Gleam doesn't ship with an HTTPS client, so this module wraps Erlang's\n"
+    " battle‑hardened `httpc` and adds a friendly builder API, streaming helpers,\n"
+    " and optional record/playback via `dream_http_client/recorder`.\n"
     "\n"
-    " ## Quick Example - Blocking Request\n"
+    " ## Quick Example — blocking request\n"
     "\n"
     " ```gleam\n"
-    " import dream_http_client/client.{host, path, add_header, send}\n"
+    " import dream_http_client/client.{add_header, host, path, send}\n"
     "\n"
-    " pub fn call_api() {\n"
-    "   let result = client.new\n"
-    "     |> host(\"api.example.com\")\n"
-    "     |> path(\"/users/123\")\n"
-    "     |> add_header(\"Authorization\", \"Bearer \" <> token)\n"
-    "     |> send()\n"
-    "\n"
-    "   case result {\n"
-    "     Ok(body) -> decode_json(body)\n"
-    "     Error(msg) -> handle_error(msg)\n"
-    "   }\n"
+    " pub fn call_api(token: String) -> Result(String, String) {\n"
+    "   client.new()\n"
+    "   |> host(\"api.example.com\")\n"
+    "   |> path(\"/users/123\")\n"
+    "   |> add_header(\"Authorization\", \"Bearer \" <> token)\n"
+    "   |> send()\n"
     " }\n"
     " ```\n"
     "\n"
-    " ## Execution Modes\n"
+    " ## Execution modes\n"
     "\n"
-    " This module provides three ways to execute HTTP requests:\n"
+    " You can execute the same `ClientRequest` in three ways:\n"
     "\n"
-    " ### 1. Blocking - `client.send()`\n"
+    " - **Blocking**: `send()` returns the full response body.\n"
+    " - **Pull streaming**: `stream_yielder()` returns a `yielder.Yielder` of chunks.\n"
+    " - **Callback streaming**: `start_stream()` spawns a stream process and calls\n"
+    "   your callbacks (`on_stream_*`) as events arrive.\n"
     "\n"
-    " Get the complete response at once. Perfect for:\n"
-    " - JSON API calls\n"
-    " - Small files or documents\n"
-    " - Any case where you need the full response before processing\n"
+    " The “right” choice is mostly about concurrency:\n"
     "\n"
-    " ### 2. Yielder Streaming - `client.stream_yielder()`\n"
+    " - Use `send()` for normal JSON APIs.\n"
+    " - Use `stream_yielder()` for scripts/one‑offs where blocking is fine.\n"
+    " - Use `start_stream()` when you need non‑blocking streaming in OTP code.\n"
     "\n"
-    " Get a `yielder.Yielder` that produces chunks sequentially. Perfect for:\n"
-    " - AI/LLM inference endpoints (streaming tokens)\n"
-    " - Simple file downloads\n"
-    " - Scripts or one-off operations\n"
+    " ## Recording and playback\n"
     "\n"
-    " **Note:** This is a pull-based synchronous API. It blocks the calling process\n"
-    " while waiting for chunks, making it unsuitable for OTP actors that need to\n"
-    " handle multiple concurrent operations.\n"
+    " Attach a recorder with `recorder()` to record real HTTP traffic to disk, or\n"
+    " to play back recordings without network calls. All three execution modes\n"
+    " (`send()`, `stream_yielder()`, `start_stream()`) fully support both\n"
+    " recording and playback.\n"
     "\n"
     " ```gleam\n"
-    " import dream_http_client/client.{host, path, stream_yielder}\n"
-    " import gleam/yielder.{each}\n"
-    " import gleam/bytes_tree.{to_string}\n"
-    " import gleam/io.{print, println_error}\n"
+    " import dream_http_client/client.{host, path, recorder, send}\n"
+    " import dream_http_client/recorder.{directory, mode, start}\n"
     "\n"
-    " client.new\n"
-    " |> host(\"api.openai.com\")\n"
-    " |> path(\"/v1/chat/completions\")\n"
-    " |> stream_yielder()\n"
-    " |> each(fn(result) {\n"
-    "   case result {\n"
-    "     Ok(chunk) -> print(to_string(chunk))\n"
-    "     Error(reason) -> println_error(\"Stream error: \" <> reason)\n"
-    "   }\n"
-    " })\n"
+    " let assert Ok(rec) =\n"
+    "   recorder.new()\n"
+    "   |> directory(\"mocks/api\")\n"
+    "   |> mode(\"record\")\n"
+    "   |> start()\n"
+    "\n"
+    " let assert Ok(body) =\n"
+    "   client.new()\n"
+    "   |> host(\"api.example.com\")\n"
+    "   |> path(\"/users/123\")\n"
+    "   |> recorder(rec)\n"
+    "   |> send()\n"
     " ```\n"
     "\n"
-    " ### 3. Message-Based Streaming - `client.stream_messages()`\n"
+    " ## Inspecting requests\n"
     "\n"
-    " Get messages sent to your process mailbox. Perfect for:\n"
-    " - OTP actors handling multiple concurrent streams\n"
-    " - Long-lived connections that need cancellation\n"
-    " - Integration with OTP supervisors and selectors\n"
-    "\n"
-    " This is a push-based asynchronous API fully compatible with OTP patterns.\n"
+    " `ClientRequest` is opaque to keep the public API stable; use the `get_*`\n"
+    " functions for logging/testing.\n"
     "\n"
     " ```gleam\n"
-    " import dream_http_client/client.{\n"
-    "   type StreamMessage, Chunk, StreamEnd, StreamError, StreamStart,\n"
-    "   select_stream_messages\n"
-    " }\n"
-    " import gleam/otp/actor.{continue}\n"
-    " import gleam/erlang/process.{new_selector}\n"
-    "\n"
-    " pub type Message {\n"
-    "   HttpStream(StreamMessage)\n"
-    " }\n"
-    "\n"
-    " fn init_selector() {\n"
-    "   new_selector()\n"
-    "   |> select_stream_messages(HttpStream)\n"
-    " }\n"
-    "\n"
-    " fn handle_message(msg: Message, state: State) {\n"
-    "   case msg {\n"
-    "     HttpStream(Chunk(req_id, data)) -> process_chunk(data, state)\n"
-    "     HttpStream(StreamEnd(req_id, _)) -> cleanup(req_id, state)\n"
-    "     HttpStream(StreamError(req_id, reason)) -> handle_error(req_id, reason, state)\n"
-    "     HttpStream(StreamStart(_, _)) -> continue(state)\n"
-    "     HttpStream(DecodeError(reason)) -> {\n"
-    "       // FFI corruption - report as bug\n"
-    "       log_critical_error(\"DecodeError: \" <> reason)\n"
-    "       continue(state)\n"
-    "     }\n"
-    "   }\n"
-    " }\n"
-    " ```\n"
-    "\n"
-    " ## Configuration\n"
-    "\n"
-    " All execution modes support the same builder pattern for configuration:\n"
-    " - **Timeouts**: Use `timeout()` to set request timeout (default: 30 seconds)\n"
-    " - **Headers**: Use `add_header()` for incremental or `headers()` for batch\n"
-    " - **Method/Path/Query**: Standard HTTP request components\n"
-    "\n"
-    " Example with timeout:\n"
-    "\n"
-    " ```gleam\n"
-    " import dream_http_client/client.{host, timeout, send}\n"
-    "\n"
-    " client.new\n"
-    " |> host(\"slow-api.example.com\")\n"
-    " |> timeout(60_000)  // 60 second timeout\n"
-    " |> send()\n"
-    " ```\n"
-    "\n"
-    " ## Inspecting Requests\n"
-    "\n"
-    " The `ClientRequest` type is opaque to ensure API stability. Use getter functions\n"
-    " to inspect request properties for logging, testing, or middleware:\n"
-    "\n"
-    " ```gleam\n"
-    " import dream_http_client/client\n"
+    " import dream_http_client/client.{get_host, get_path, host, path}\n"
     " import gleam/io\n"
     "\n"
-    " let req = client.new\n"
-    "   |> client.host(\"api.example.com\")\n"
-    "   |> client.path(\"/users/123\")\n"
-    "\n"
-    " // Inspect the request before sending\n"
-    " io.println(\"Calling: \" <> client.get_host(req) <> client.get_path(req))\n"
-    " // Prints: \"Calling: api.example.com/users/123\"\n"
-    "\n"
-    " let result = client.send(req)\n"
+    " let req = client.new() |> host(\"api.example.com\") |> path(\"/users/123\")\n"
+    " io.println(\"Calling: \" <> get_host(req) <> get_path(req))\n"
     " ```\n"
-    "\n"
-    " Available getters: `get_method`, `get_scheme`, `get_host`, `get_port`, `get_path`,\n"
-    " `get_query`, `get_headers`, `get_body`, `get_timeout`, `get_recorder`\n"
 ).
 
 -type header() :: {header, binary(), binary()}.
+
+-type http_response() :: {http_response, integer(), list(header()), binary()}.
+
+-type send_error() :: {response_error, http_response()} |
+    {request_error, binary()}.
 
 -opaque client_request() :: {client_request,
         gleam@http:method(),
@@ -200,16 +131,65 @@
         integer(),
         dream_http_client@recorder:recorder(),
         dream_http_client@recording:recorded_request(),
+        list({binary(), binary()}),
         list(dream_http_client@recording:chunk()),
         gleam@option:option(integer())}.
 
 -type message_stream_recorder_state() :: {message_stream_recorder_state,
         dream_http_client@recorder:recorder(),
         dream_http_client@recording:recorded_request(),
+        list({binary(), binary()}),
         list(dream_http_client@recording:chunk()),
         gleam@option:option(integer())}.
 
--file("src/dream_http_client/client.gleam", 307).
+-file("src/dream_http_client/client.gleam", 258).
+?DOC(
+    " Default client request configuration\n"
+    "\n"
+    " Creates a new `ClientRequest` with sensible defaults:\n"
+    " - Method: GET\n"
+    " - Scheme: HTTPS\n"
+    " - Host: \"localhost\"\n"
+    " - Port: None (uses default for scheme)\n"
+    " - Path: \"\" (empty)\n"
+    " - Query: None\n"
+    " - Headers: [] (empty)\n"
+    " - Body: \"\" (empty)\n"
+    " - Timeout: None (uses default 30000ms)\n"
+    "\n"
+    " Use this as the starting point for building requests with the builder pattern.\n"
+    "\n"
+    " ## Example\n"
+    "\n"
+    " ```gleam\n"
+    " import dream_http_client/client.{host, method, new, path}\n"
+    " import gleam/http.{Get}\n"
+    "\n"
+    " new()\n"
+    " |> host(\"api.example.com\")\n"
+    " |> path(\"/users/123\")\n"
+    " |> method(Get)\n"
+    " ```\n"
+).
+-spec new() -> client_request().
+new() ->
+    {client_request,
+        get,
+        https,
+        <<"localhost"/utf8>>,
+        none,
+        <<""/utf8>>,
+        none,
+        [],
+        <<""/utf8>>,
+        none,
+        none,
+        none,
+        none,
+        none,
+        none}.
+
+-file("src/dream_http_client/client.gleam", 299).
 ?DOC(
     " Set the HTTP method for the request\n"
     "\n"
@@ -230,7 +210,7 @@
     " import dream_http_client/client\n"
     " import gleam/http\n"
     "\n"
-    " client.new\n"
+    " client.new()\n"
     " |> client.method(http.Post)\n"
     " ```\n"
 ).
@@ -252,7 +232,7 @@ method(Client_request, Method_value) ->
         erlang:element(14, Client_request),
         erlang:element(15, Client_request)}.
 
--file("src/dream_http_client/client.gleam", 336).
+-file("src/dream_http_client/client.gleam", 328).
 ?DOC(
     " Set the scheme (protocol) for the request\n"
     "\n"
@@ -273,7 +253,7 @@ method(Client_request, Method_value) ->
     " import dream_http_client/client\n"
     " import gleam/http\n"
     "\n"
-    " client.new\n"
+    " client.new()\n"
     " |> client.scheme(http.Http)  // Use HTTP instead of HTTPS\n"
     " ```\n"
 ).
@@ -295,7 +275,7 @@ scheme(Client_request, Scheme_value) ->
         erlang:element(14, Client_request),
         erlang:element(15, Client_request)}.
 
--file("src/dream_http_client/client.gleam", 364).
+-file("src/dream_http_client/client.gleam", 356).
 ?DOC(
     " Set the host for the request\n"
     "\n"
@@ -315,7 +295,7 @@ scheme(Client_request, Scheme_value) ->
     " ```gleam\n"
     " import dream_http_client/client\n"
     "\n"
-    " client.new\n"
+    " client.new()\n"
     " |> client.host(\"api.example.com\")\n"
     " ```\n"
 ).
@@ -337,7 +317,7 @@ host(Client_request, Host_value) ->
         erlang:element(14, Client_request),
         erlang:element(15, Client_request)}.
 
--file("src/dream_http_client/client.gleam", 394).
+-file("src/dream_http_client/client.gleam", 383).
 ?DOC(
     " Set the port for the request\n"
     "\n"
@@ -358,7 +338,7 @@ host(Client_request, Host_value) ->
     " ```gleam\n"
     " import dream_http_client/client\n"
     "\n"
-    " client.new\n"
+    " client.new()\n"
     " |> client.host(\"localhost\")\n"
     " |> client.port(3000)  // Use port 3000 instead of default\n"
     " ```\n"
@@ -381,7 +361,7 @@ port(Client_request, Port_value) ->
         erlang:element(14, Client_request),
         erlang:element(15, Client_request)}.
 
--file("src/dream_http_client/client.gleam", 419).
+-file("src/dream_http_client/client.gleam", 408).
 ?DOC(
     " Set the path for the request\n"
     "\n"
@@ -401,7 +381,7 @@ port(Client_request, Port_value) ->
     " ```gleam\n"
     " import dream_http_client/client\n"
     "\n"
-    " client.new\n"
+    " client.new()\n"
     " |> client.path(\"/api/users/123\")\n"
     " ```\n"
 ).
@@ -423,7 +403,7 @@ path(Client_request, Path_value) ->
         erlang:element(14, Client_request),
         erlang:element(15, Client_request)}.
 
--file("src/dream_http_client/client.gleam", 448).
+-file("src/dream_http_client/client.gleam", 434).
 ?DOC(
     " Set the query string for the request\n"
     "\n"
@@ -443,7 +423,7 @@ path(Client_request, Path_value) ->
     " ```gleam\n"
     " import dream_http_client/client\n"
     "\n"
-    " client.new\n"
+    " client.new()\n"
     " |> client.path(\"/api/users\")\n"
     " |> client.query(\"page=1&limit=10\")\n"
     " ```\n"
@@ -466,7 +446,7 @@ path(Client_request, Path_value) ->
         erlang:element(14, Client_request),
         erlang:element(15, Client_request)}.
 
--file("src/dream_http_client/client.gleam", 480).
+-file("src/dream_http_client/client.gleam", 466).
 ?DOC(
     " Set the headers for the request\n"
     "\n"
@@ -487,7 +467,7 @@ path(Client_request, Path_value) ->
     " ```gleam\n"
     " import dream_http_client/client\n"
     "\n"
-    " client.new\n"
+    " client.new()\n"
     " |> client.headers([\n"
     "   #(\"Authorization\", \"Bearer \" <> token),\n"
     "   #(\"Content-Type\", \"application/json\"),\n"
@@ -512,7 +492,7 @@ headers(Client_request, Headers_value) ->
         erlang:element(14, Client_request),
         erlang:element(15, Client_request)}.
 
--file("src/dream_http_client/client.gleam", 516).
+-file("src/dream_http_client/client.gleam", 502).
 ?DOC(
     " Set the body for the request\n"
     "\n"
@@ -539,7 +519,7 @@ headers(Client_request, Headers_value) ->
     "   #(\"email\", json.string(\"alice@example.com\")),\n"
     " ])\n"
     "\n"
-    " client.new\n"
+    " client.new()\n"
     " |> client.method(http.Post)\n"
     " |> client.body(json.to_string(json_body))\n"
     " ```\n"
@@ -562,7 +542,7 @@ body(Client_request, Body_value) ->
         erlang:element(14, Client_request),
         erlang:element(15, Client_request)}.
 
--file("src/dream_http_client/client.gleam", 552).
+-file("src/dream_http_client/client.gleam", 535).
 ?DOC(
     " Set the recorder for the request\n"
     "\n"
@@ -582,16 +562,16 @@ body(Client_request, Body_value) ->
     "\n"
     " ```gleam\n"
     " import dream_http_client/client\n"
-    " import dream_http_client/recorder\n"
+    " import dream_http_client/client.{host, recorder}\n"
+    " import dream_http_client/recorder.{directory, mode, start}\n"
     "\n"
-    " let assert Ok(rec) = recorder.start(\n"
-    "   mode: recorder.Record(directory: \"mocks\"),\n"
-    "   matching: recorder.match_url_only(),\n"
-    " )\n"
+    " let assert Ok(rec) =\n"
+    "   recorder.new()\n"
+    "   |> directory(\"mocks\")\n"
+    "   |> mode(\"record\")\n"
+    "   |> start()\n"
     "\n"
-    " client.new\n"
-    " |> client.host(\"api.example.com\")\n"
-    " |> client.recorder(rec)\n"
+    " client.new() |> host(\"api.example.com\") |> recorder(rec)\n"
     " ```\n"
 ).
 -spec recorder(client_request(), dream_http_client@recorder:recorder()) -> client_request().
@@ -612,7 +592,7 @@ recorder(Client_request, Recorder_value) ->
         erlang:element(14, Client_request),
         erlang:element(15, Client_request)}.
 
--file("src/dream_http_client/client.gleam", 577).
+-file("src/dream_http_client/client.gleam", 560).
 ?DOC(
     " Set the timeout for the request in milliseconds\n"
     "\n"
@@ -628,7 +608,7 @@ recorder(Client_request, Recorder_value) ->
     " ```gleam\n"
     " import dream_http_client/client.{host, timeout}\n"
     "\n"
-    " client.new\n"
+    " client.new()\n"
     " |> host(\"slow-api.example.com\")\n"
     " |> timeout(60_000)  // 60 second timeout\n"
     " ```\n"
@@ -651,7 +631,7 @@ timeout(Client_request, Timeout_ms) ->
         erlang:element(14, Client_request),
         erlang:element(15, Client_request)}.
 
--file("src/dream_http_client/client.gleam", 604).
+-file("src/dream_http_client/client.gleam", 584).
 ?DOC(
     " Set callback for stream start event\n"
     "\n"
@@ -666,7 +646,7 @@ timeout(Client_request, Timeout_ms) ->
     " ## Example\n"
     "\n"
     " ```gleam\n"
-    " client.new\n"
+    " client.new()\n"
     " |> client.host(\"api.example.com\")\n"
     " |> client.on_stream_start(fn(headers) {\n"
     "   io.println(\"Stream started with \" <> int.to_string(list.length(headers)) <> \" headers\")\n"
@@ -692,7 +672,7 @@ on_stream_start(Client_request, Callback) ->
         erlang:element(14, Client_request),
         erlang:element(15, Client_request)}.
 
--file("src/dream_http_client/client.gleam", 632).
+-file("src/dream_http_client/client.gleam", 612).
 ?DOC(
     " Set callback for stream chunk event\n"
     "\n"
@@ -707,7 +687,7 @@ on_stream_start(Client_request, Callback) ->
     " ## Example\n"
     "\n"
     " ```gleam\n"
-    " client.new\n"
+    " client.new()\n"
     " |> client.host(\"api.openai.com\")\n"
     " |> client.on_stream_chunk(fn(data) {\n"
     "   let text = bytes_tree.from_bit_array(data) |> bytes_tree.to_string\n"
@@ -734,7 +714,7 @@ on_stream_chunk(Client_request, Callback) ->
         erlang:element(14, Client_request),
         erlang:element(15, Client_request)}.
 
--file("src/dream_http_client/client.gleam", 659).
+-file("src/dream_http_client/client.gleam", 639).
 ?DOC(
     " Set callback for stream end event\n"
     "\n"
@@ -749,7 +729,7 @@ on_stream_chunk(Client_request, Callback) ->
     " ## Example\n"
     "\n"
     " ```gleam\n"
-    " client.new\n"
+    " client.new()\n"
     " |> client.host(\"api.example.com\")\n"
     " |> client.on_stream_end(fn(_headers) {\n"
     "   io.println(\"Stream completed\")\n"
@@ -775,7 +755,7 @@ on_stream_end(Client_request, Callback) ->
         {some, Callback},
         erlang:element(15, Client_request)}.
 
--file("src/dream_http_client/client.gleam", 686).
+-file("src/dream_http_client/client.gleam", 666).
 ?DOC(
     " Set callback for stream error event\n"
     "\n"
@@ -790,7 +770,7 @@ on_stream_end(Client_request, Callback) ->
     " ## Example\n"
     "\n"
     " ```gleam\n"
-    " client.new\n"
+    " client.new()\n"
     " |> client.host(\"api.example.com\")\n"
     " |> client.on_stream_error(fn(reason) {\n"
     "   io.println_error(\"Stream failed: \" <> reason)\n"
@@ -816,7 +796,7 @@ on_stream_error(Client_request, Callback) ->
         erlang:element(14, Client_request),
         {some, Callback}}.
 
--file("src/dream_http_client/client.gleam", 718).
+-file("src/dream_http_client/client.gleam", 698).
 ?DOC(
     " Add a header to the request\n"
     "\n"
@@ -839,7 +819,7 @@ on_stream_error(Client_request, Callback) ->
     " ```gleam\n"
     " import dream_http_client/client\n"
     "\n"
-    " client.new\n"
+    " client.new()\n"
     " |> client.add_header(\"Authorization\", \"Bearer \" <> token)\n"
     " |> client.add_header(\"Content-Type\", \"application/json\")\n"
     " ```\n"
@@ -862,7 +842,7 @@ add_header(Client_request, Name, Value) ->
         erlang:element(14, Client_request),
         erlang:element(15, Client_request)}.
 
--file("src/dream_http_client/client.gleam", 747).
+-file("src/dream_http_client/client.gleam", 727).
 ?DOC(
     " Get the HTTP method from a request\n"
     "\n"
@@ -874,7 +854,7 @@ add_header(Client_request, Name, Value) ->
     " import dream_http_client/client\n"
     " import gleam/http.{Post}\n"
     "\n"
-    " let req = client.new |> client.method(Post)\n"
+    " let req = client.new() |> client.method(Post)\n"
     " let method = client.get_method(req)\n"
     " // method == Post\n"
     " ```\n"
@@ -883,7 +863,7 @@ add_header(Client_request, Name, Value) ->
 get_method(Client_request) ->
     erlang:element(2, Client_request).
 
--file("src/dream_http_client/client.gleam", 765).
+-file("src/dream_http_client/client.gleam", 745).
 ?DOC(
     " Get the URI scheme from a request\n"
     "\n"
@@ -895,7 +875,7 @@ get_method(Client_request) ->
     " import dream_http_client/client\n"
     " import gleam/http.{Http}\n"
     "\n"
-    " let req = client.new |> client.scheme(Http)\n"
+    " let req = client.new() |> client.scheme(Http)\n"
     " let scheme = client.get_scheme(req)\n"
     " // scheme == Http\n"
     " ```\n"
@@ -904,7 +884,7 @@ get_method(Client_request) ->
 get_scheme(Client_request) ->
     erlang:element(3, Client_request).
 
--file("src/dream_http_client/client.gleam", 782).
+-file("src/dream_http_client/client.gleam", 762).
 ?DOC(
     " Get the host from a request\n"
     "\n"
@@ -915,7 +895,7 @@ get_scheme(Client_request) ->
     " ```gleam\n"
     " import dream_http_client/client\n"
     "\n"
-    " let req = client.new |> client.host(\"api.example.com\")\n"
+    " let req = client.new() |> client.host(\"api.example.com\")\n"
     " let host = client.get_host(req)\n"
     " // host == \"api.example.com\"\n"
     " ```\n"
@@ -924,7 +904,7 @@ get_scheme(Client_request) ->
 get_host(Client_request) ->
     erlang:element(4, Client_request).
 
--file("src/dream_http_client/client.gleam", 800).
+-file("src/dream_http_client/client.gleam", 780).
 ?DOC(
     " Get the port from a request\n"
     "\n"
@@ -936,7 +916,7 @@ get_host(Client_request) ->
     " ```gleam\n"
     " import dream_http_client/client\n"
     "\n"
-    " let req = client.new |> client.port(8080)\n"
+    " let req = client.new() |> client.port(8080)\n"
     " let port = client.get_port(req)\n"
     " // port == Some(8080)\n"
     " ```\n"
@@ -945,7 +925,7 @@ get_host(Client_request) ->
 get_port(Client_request) ->
     erlang:element(5, Client_request).
 
--file("src/dream_http_client/client.gleam", 817).
+-file("src/dream_http_client/client.gleam", 797).
 ?DOC(
     " Get the path from a request\n"
     "\n"
@@ -956,7 +936,7 @@ get_port(Client_request) ->
     " ```gleam\n"
     " import dream_http_client/client\n"
     "\n"
-    " let req = client.new |> client.path(\"/api/users\")\n"
+    " let req = client.new() |> client.path(\"/api/users\")\n"
     " let path = client.get_path(req)\n"
     " // path == \"/api/users\"\n"
     " ```\n"
@@ -965,7 +945,7 @@ get_port(Client_request) ->
 get_path(Client_request) ->
     erlang:element(6, Client_request).
 
--file("src/dream_http_client/client.gleam", 834).
+-file("src/dream_http_client/client.gleam", 814).
 ?DOC(
     " Get the query string from a request\n"
     "\n"
@@ -976,7 +956,7 @@ get_path(Client_request) ->
     " ```gleam\n"
     " import dream_http_client/client\n"
     "\n"
-    " let req = client.new |> client.query(\"page=1&limit=10\")\n"
+    " let req = client.new() |> client.query(\"page=1&limit=10\")\n"
     " let query = client.get_query(req)\n"
     " // query == Some(\"page=1&limit=10\")\n"
     " ```\n"
@@ -985,7 +965,7 @@ get_path(Client_request) ->
 get_query(Client_request) ->
     erlang:element(7, Client_request).
 
--file("src/dream_http_client/client.gleam", 853).
+-file("src/dream_http_client/client.gleam", 833).
 ?DOC(
     " Get the headers from a request\n"
     "\n"
@@ -996,7 +976,7 @@ get_query(Client_request) ->
     " ```gleam\n"
     " import dream_http_client/client\n"
     "\n"
-    " let req = client.new\n"
+    " let req = client.new()\n"
     "   |> client.add_header(\"Authorization\", \"Bearer token\")\n"
     "   |> client.add_header(\"Content-Type\", \"application/json\")\n"
     " let headers = client.get_headers(req)\n"
@@ -1007,7 +987,7 @@ get_query(Client_request) ->
 get_headers(Client_request) ->
     erlang:element(8, Client_request).
 
--file("src/dream_http_client/client.gleam", 870).
+-file("src/dream_http_client/client.gleam", 850).
 ?DOC(
     " Get the body from a request\n"
     "\n"
@@ -1018,7 +998,7 @@ get_headers(Client_request) ->
     " ```gleam\n"
     " import dream_http_client/client\n"
     "\n"
-    " let req = client.new |> client.body(\"{\\\"name\\\": \\\"Alice\\\"}\")\n"
+    " let req = client.new() |> client.body(\"{\\\"name\\\": \\\"Alice\\\"}\")\n"
     " let body = client.get_body(req)\n"
     " // body == \"{\\\"name\\\": \\\"Alice\\\"}\"\n"
     " ```\n"
@@ -1027,7 +1007,7 @@ get_headers(Client_request) ->
 get_body(Client_request) ->
     erlang:element(9, Client_request).
 
--file("src/dream_http_client/client.gleam", 888).
+-file("src/dream_http_client/client.gleam", 868).
 ?DOC(
     " Get the timeout from a request\n"
     "\n"
@@ -1039,7 +1019,7 @@ get_body(Client_request) ->
     " ```gleam\n"
     " import dream_http_client/client\n"
     "\n"
-    " let req = client.new |> client.timeout(5000)\n"
+    " let req = client.new() |> client.timeout(5000)\n"
     " let timeout = client.get_timeout(req)\n"
     " // timeout == Some(5000)\n"
     " ```\n"
@@ -1048,7 +1028,7 @@ get_body(Client_request) ->
 get_timeout(Client_request) ->
     erlang:element(10, Client_request).
 
--file("src/dream_http_client/client.gleam", 911).
+-file("src/dream_http_client/client.gleam", 891).
 ?DOC(
     " Get the recorder from a request\n"
     "\n"
@@ -1058,14 +1038,14 @@ get_timeout(Client_request) ->
     "\n"
     " ```gleam\n"
     " import dream_http_client/client\n"
-    " import dream_http_client/recorder\n"
-    " import dream_http_client/matching\n"
+    " import dream_http_client/recorder.{directory, mode, start}\n"
     "\n"
-    " let assert Ok(rec) = recorder.start(\n"
-    "   mode: recorder.Record(directory: \"mocks\"),\n"
-    "   matching: matching.match_url_only(),\n"
-    " )\n"
-    " let req = client.new |> client.recorder(rec)\n"
+    " let assert Ok(rec) =\n"
+    "   recorder.new()\n"
+    "   |> directory(\"mocks\")\n"
+    "   |> mode(\"record\")\n"
+    "   |> start()\n"
+    " let req = client.new() |> client.recorder(rec)\n"
     " let recorder_opt = client.get_recorder(req)\n"
     " // recorder_opt == Some(rec)\n"
     " ```\n"
@@ -1074,12 +1054,34 @@ get_timeout(Client_request) ->
 get_recorder(Client_request) ->
     erlang:element(11, Client_request).
 
--file("src/dream_http_client/client.gleam", 1212).
+-file("src/dream_http_client/client.gleam", 1493).
+-spec tuples_to_headers(list({binary(), binary()})) -> list(header()).
+tuples_to_headers(Tuples) ->
+    gleam@list:map(
+        Tuples,
+        fun(T) -> {header, erlang:element(1, T), erlang:element(2, T)} end
+    ).
+
+-file("src/dream_http_client/client.gleam", 1497).
+-spec response_result(integer(), list({binary(), binary()}), binary()) -> {ok,
+        http_response()} |
+    {error, send_error()}.
+response_result(Status, Headers, Body) ->
+    Response = {http_response, Status, tuples_to_headers(Headers), Body},
+    case Status >= 400 of
+        true ->
+            {error, {response_error, Response}};
+
+        false ->
+            {ok, Response}
+    end.
+
+-file("src/dream_http_client/client.gleam", 1206).
 -spec convert_string_error(nil) -> binary().
 convert_string_error(_) ->
     <<"Failed to convert response to string"/utf8>>.
 
--file("src/dream_http_client/client.gleam", 1218).
+-file("src/dream_http_client/client.gleam", 1212).
 -spec resolve_timeout(client_request()) -> integer().
 resolve_timeout(Client_request) ->
     case erlang:element(10, Client_request) of
@@ -1090,7 +1092,7 @@ resolve_timeout(Client_request) ->
             30000
     end.
 
--file("src/dream_http_client/client.gleam", 1833).
+-file("src/dream_http_client/client.gleam", 1781).
 -spec build_url(gleam@http@request:request(binary())) -> binary().
 build_url(Request) ->
     Port_string = case erlang:element(7, Request) of
@@ -1114,7 +1116,7 @@ build_url(Request) ->
             (erlang:element(8, Request))/binary>>/binary,
         Query_string/binary>>.
 
--file("src/dream_http_client/client.gleam", 1586).
+-file("src/dream_http_client/client.gleam", 1489).
 -spec headers_to_tuples(list(header())) -> list({binary(), binary()}).
 headers_to_tuples(Headers) ->
     gleam@list:map(
@@ -1122,7 +1124,7 @@ headers_to_tuples(Headers) ->
         fun(H) -> {erlang:element(2, H), erlang:element(3, H)} end
     ).
 
--file("src/dream_http_client/client.gleam", 1573).
+-file("src/dream_http_client/client.gleam", 1476).
 -spec to_http_request(client_request()) -> gleam@http@request:request(binary()).
 to_http_request(Client_request) ->
     {request,
@@ -1135,10 +1137,11 @@ to_http_request(Client_request) ->
         erlang:element(6, Client_request),
         erlang:element(7, Client_request)}.
 
--file("src/dream_http_client/client.gleam", 1175).
--spec send_client_request_to_httpc(client_request()) -> {ok, binary()} |
+-file("src/dream_http_client/client.gleam", 1168).
+-spec send_client_request_to_httpc_with_meta(client_request()) -> {ok,
+        {integer(), list({binary(), binary()}), binary()}} |
     {error, binary()}.
-send_client_request_to_httpc(Client_request) ->
+send_client_request_to_httpc_with_meta(Client_request) ->
     Http_request = to_http_request(Client_request),
     Url = build_url(Http_request),
     Method_atom = dream_http_client@internal:atomize_method(
@@ -1154,32 +1157,50 @@ send_client_request_to_httpc(Client_request) ->
         Body,
         Timeout_value
     ) of
-        {ok, Response_body} ->
+        {ok, {Status, Headers, Response_body}} ->
             _pipe = Response_body,
             _pipe@1 = gleam@bit_array:to_string(_pipe),
-            gleam@result:map_error(_pipe@1, fun convert_string_error/1);
+            _pipe@2 = gleam@result:map_error(
+                _pipe@1,
+                fun convert_string_error/1
+            ),
+            gleam@result:map(
+                _pipe@2,
+                fun(Body_str) -> {Status, Headers, Body_str} end
+            );
 
         {error, Error_message} ->
             {error, Error_message}
     end.
 
--file("src/dream_http_client/client.gleam", 1100).
--spec send_without_recorder(client_request()) -> {ok, binary()} |
-    {error, binary()}.
+-file("src/dream_http_client/client.gleam", 1159).
+-spec send_client_request_to_httpc(client_request()) -> {ok, http_response()} |
+    {error, send_error()}.
+send_client_request_to_httpc(Client_request) ->
+    case send_client_request_to_httpc_with_meta(Client_request) of
+        {ok, {Status, Headers, Body}} ->
+            response_result(Status, Headers, Body);
+
+        {error, Error_message} ->
+            {error, {request_error, Error_message}}
+    end.
+
+-file("src/dream_http_client/client.gleam", 1077).
+-spec send_without_recorder(client_request()) -> {ok, http_response()} |
+    {error, send_error()}.
 send_without_recorder(Client_request) ->
     send_client_request_to_httpc(Client_request).
 
--file("src/dream_http_client/client.gleam", 1150).
--spec record_blocking_response_if_needed(
+-file("src/dream_http_client/client.gleam", 1144).
+-spec record_response_if_needed(
     dream_http_client@recorder:recorder(),
     dream_http_client@recording:recorded_request(),
-    binary()
+    dream_http_client@recording:recorded_response()
 ) -> nil.
-record_blocking_response_if_needed(Recorder_instance, Recorded_request, Body) ->
+record_response_if_needed(Recorder_instance, Recorded_request, Response) ->
     case dream_http_client@recorder:is_record_mode(Recorder_instance) of
         true ->
-            Recorded_response = {blocking_response, 200, [], Body},
-            Recorder_entry = {recording, Recorded_request, Recorded_response},
+            Recorder_entry = {recording, Recorded_request, Response},
             dream_http_client@recorder:add_recording(
                 Recorder_instance,
                 Recorder_entry
@@ -1189,41 +1210,56 @@ record_blocking_response_if_needed(Recorder_instance, Recorded_request, Body) ->
             nil
     end.
 
--file("src/dream_http_client/client.gleam", 1132).
+-file("src/dream_http_client/client.gleam", 1111).
 -spec send_and_maybe_record(
     client_request(),
     dream_http_client@recorder:recorder(),
     dream_http_client@recording:recorded_request()
-) -> {ok, binary()} | {error, binary()}.
+) -> {ok, http_response()} | {error, send_error()}.
 send_and_maybe_record(Client_request, Recorder_instance, Recorded_request) ->
-    case send_client_request_to_httpc(Client_request) of
-        {ok, Body} ->
-            record_blocking_response_if_needed(
+    case send_client_request_to_httpc_with_meta(Client_request) of
+        {ok, {Status, Headers, Body}} ->
+            Recorded_response = {blocking_response, Status, Headers, Body},
+            Response_for_recording = case dream_http_client@recorder:is_record_mode(
+                Recorder_instance
+            ) of
+                true ->
+                    dream_http_client@recorder:transform_response(
+                        Recorder_instance,
+                        Recorded_request,
+                        Recorded_response
+                    );
+
+                false ->
+                    Recorded_response
+            end,
+            record_response_if_needed(
                 Recorder_instance,
                 Recorded_request,
-                Body
+                Response_for_recording
             ),
-            {ok, Body};
+            response_result(Status, Headers, Body);
 
         {error, Error_message} ->
-            {error, Error_message}
+            {error, {request_error, Error_message}}
     end.
 
--file("src/dream_http_client/client.gleam", 1120).
+-file("src/dream_http_client/client.gleam", 1098).
 -spec handle_recorded_blocking_response(
     dream_http_client@recording:recorded_response()
-) -> {ok, binary()} | {error, binary()}.
+) -> {ok, http_response()} | {error, send_error()}.
 handle_recorded_blocking_response(Response) ->
     case Response of
-        {blocking_response, _, _, Body} ->
-            {ok, Body};
+        {blocking_response, Status, Headers, Body} ->
+            response_result(Status, Headers, Body);
 
         {streaming_response, _, _, _} ->
             {error,
-                <<"Recording contains streaming response, use stream_yielder() instead"/utf8>>}
+                {request_error,
+                    <<"Recording contains streaming response, use stream_yielder() instead"/utf8>>}}
     end.
 
--file("src/dream_http_client/client.gleam", 1197).
+-file("src/dream_http_client/client.gleam", 1191).
 -spec client_request_to_recorded_request(client_request()) -> dream_http_client@recording:recorded_request().
 client_request_to_recorded_request(Client_request) ->
     {recorded_request,
@@ -1236,41 +1272,51 @@ client_request_to_recorded_request(Client_request) ->
         headers_to_tuples(erlang:element(8, Client_request)),
         erlang:element(9, Client_request)}.
 
--file("src/dream_http_client/client.gleam", 1106).
+-file("src/dream_http_client/client.gleam", 1083).
 -spec send_with_recorder(
     client_request(),
     dream_http_client@recorder:recorder()
-) -> {ok, binary()} | {error, binary()}.
+) -> {ok, http_response()} | {error, send_error()}.
 send_with_recorder(Client_request, Recorder_instance) ->
     Recorded_request = client_request_to_recorded_request(Client_request),
     case dream_http_client@recorder:find_recording(
         Recorder_instance,
         Recorded_request
     ) of
-        {some, {recording, _, Response}} ->
+        {ok, {some, {recording, _, Response}}} ->
             handle_recorded_blocking_response(Response);
 
-        none ->
+        {ok, none} ->
             send_and_maybe_record(
                 Client_request,
                 Recorder_instance,
                 Recorded_request
-            )
+            );
+
+        {error, Reason} ->
+            {error, {request_error, Reason}}
     end.
 
--file("src/dream_http_client/client.gleam", 1092).
+-file("src/dream_http_client/client.gleam", 1069).
 ?DOC(
     " Make a blocking HTTP request and get the complete response\n"
     "\n"
     " Sends an HTTP request and collects all response chunks, returning the\n"
-    " complete response body as a string. This is ideal for:\n"
+    " complete response with status code, headers, and body. This is ideal for:\n"
     "\n"
     " - JSON API responses\n"
     " - Small files or documents\n"
     " - Any case where you need the full response before processing\n"
     "\n"
-    " For large responses or when you need OTP compatibility, use\n"
-    " `stream_yielder()` or `stream_messages()` instead.\n"
+    " For large responses or when you need non-blocking streaming, use\n"
+    " `stream_yielder()` or `start_stream()` instead.\n"
+    "\n"
+    " ## Recording and Playback\n"
+    "\n"
+    " When a recorder is attached (via `recorder()`), this function fully supports\n"
+    " both recording and playback. In record mode, the real response is persisted\n"
+    " to disk. In playback mode, the recorded response is returned without making\n"
+    " a network call.\n"
     "\n"
     " ## Parameters\n"
     "\n"
@@ -1278,34 +1324,40 @@ send_with_recorder(Client_request, Recorder_instance) ->
     "\n"
     " ## Returns\n"
     "\n"
-    " - `Ok(String)`: The complete response body as a string\n"
-    " - `Error(String)`: An error message if the request failed\n"
+    " - `Ok(HttpResponse)`: Successful response (status < 400) with status, headers, and body\n"
+    " - `Error(ResponseError(response))`: HTTP error response (status >= 400) with full response\n"
+    " - `Error(RequestError(message))`: Connection failure, timeout, or other transport error\n"
     "\n"
     " ## Example\n"
     "\n"
     " ```gleam\n"
-    " import dream_http_client/client.{host, path, add_header, send}\n"
-    " import gleam/json.{decode}\n"
+    " import dream_http_client/client.{\n"
+    "   HttpResponse, RequestError, ResponseError,\n"
+    "   host, path, add_header, send,\n"
+    " }\n"
     "\n"
-    " let result = client.new\n"
+    " let result = client.new()\n"
     "   |> host(\"api.example.com\")\n"
     "   |> path(\"/users/123\")\n"
     "   |> add_header(\"Authorization\", \"Bearer \" <> token)\n"
     "   |> send()\n"
     "\n"
     " case result {\n"
-    "   Ok(body) -> {\n"
-    "     case decode(body, user_decoder) {\n"
+    "   Ok(HttpResponse(body: body, ..)) -> {\n"
+    "     case json.decode(body, user_decoder) {\n"
     "       Ok(user) -> Ok(user)\n"
     "       Error(json_error) ->\n"
-    "         Error(\"Invalid JSON response: \" <> string.inspect(json_error))\n"
+    "         Error(\"Invalid JSON: \" <> string.inspect(json_error))\n"
     "     }\n"
     "   }\n"
-    "   Error(error_message) -> Error(\"Request failed: \" <> error_message)\n"
+    "   Error(ResponseError(response)) ->\n"
+    "     Error(\"HTTP \" <> int.to_string(response.status) <> \": \" <> response.body)\n"
+    "   Error(RequestError(message)) ->\n"
+    "     Error(\"Request failed: \" <> message)\n"
     " }\n"
     " ```\n"
 ).
--spec send(client_request()) -> {ok, binary()} | {error, binary()}.
+-spec send(client_request()) -> {ok, http_response()} | {error, send_error()}.
 send(Client_request) ->
     case erlang:element(11, Client_request) of
         {some, Recorder_instance} ->
@@ -1315,119 +1367,7 @@ send(Client_request) ->
             send_without_recorder(Client_request)
     end.
 
--file("src/dream_http_client/client.gleam", 1304).
--spec send_with_status_to_httpc(client_request()) -> {ok, {integer(), binary()}} |
-    {error, binary()}.
-send_with_status_to_httpc(Client_request) ->
-    Http_request = to_http_request(Client_request),
-    Url = build_url(Http_request),
-    Method_atom = dream_http_client@internal:atomize_method(
-        erlang:element(2, Http_request)
-    ),
-    Method_dynamic = gleam_erlang_ffi:identity(Method_atom),
-    Body = <<(erlang:element(4, Http_request))/binary>>,
-    Timeout_value = resolve_timeout(Client_request),
-    case dream_httpc_shim:request_sync_response(
-        Method_dynamic,
-        Url,
-        erlang:element(3, Http_request),
-        Body,
-        Timeout_value
-    ) of
-        {ok, {Status, Response_body}} ->
-            _pipe = Response_body,
-            _pipe@1 = gleam@bit_array:to_string(_pipe),
-            _pipe@2 = gleam@result:map_error(
-                _pipe@1,
-                fun convert_string_error/1
-            ),
-            gleam@result:map(_pipe@2, fun(Text) -> {Status, Text} end);
-
-        {error, Error_message} ->
-            {error, Error_message}
-    end.
-
--file("src/dream_http_client/client.gleam", 1281).
--spec record_status_response_if_needed(
-    dream_http_client@recorder:recorder(),
-    dream_http_client@recording:recorded_request(),
-    integer(),
-    binary()
-) -> nil.
-record_status_response_if_needed(
-    Recorder_instance,
-    Recorded_request,
-    Status,
-    Body
-) ->
-    case dream_http_client@recorder:is_record_mode(Recorder_instance) of
-        true ->
-            dream_http_client@recorder:add_recording(
-                Recorder_instance,
-                {recording,
-                    Recorded_request,
-                    {blocking_response, Status, [], Body}}
-            );
-
-        false ->
-            nil
-    end.
-
--file("src/dream_http_client/client.gleam", 1250).
--spec send_with_status_recorder(
-    client_request(),
-    dream_http_client@recorder:recorder()
-) -> {ok, {integer(), binary()}} | {error, binary()}.
-send_with_status_recorder(Client_request, Recorder_instance) ->
-    Recorded_request = client_request_to_recorded_request(Client_request),
-    case dream_http_client@recorder:find_recording(
-        Recorder_instance,
-        Recorded_request
-    ) of
-        {some, {recording, _, {blocking_response, Status, _, Body}}} ->
-            {ok, {Status, Body}};
-
-        {some, {recording, _, {streaming_response, _, _, _}}} ->
-            {error,
-                <<"Recording contains streaming response, use stream_yielder() instead"/utf8>>};
-
-        none ->
-            case send_with_status_to_httpc(Client_request) of
-                {ok, {Status@1, Body@1}} ->
-                    record_status_response_if_needed(
-                        Recorder_instance,
-                        Recorded_request,
-                        Status@1,
-                        Body@1
-                    ),
-                    {ok, {Status@1, Body@1}};
-
-                {error, Error_message} ->
-                    {error, Error_message}
-            end
-    end.
-
--file("src/dream_http_client/client.gleam", 1240).
-?DOC(
-    " Send an HTTP request and return the response status and body\n"
-    "\n"
-    " Like `send`, but preserves the response status code instead of\n"
-    " discarding it. Recorder-aware: a recorded blocking response replays\n"
-    " with its stored status, and record mode stores the actual status\n"
-    " (unlike `send`'s recordings, which assume 200).\n"
-).
--spec send_with_status(client_request()) -> {ok, {integer(), binary()}} |
-    {error, binary()}.
-send_with_status(Client_request) ->
-    case erlang:element(11, Client_request) of
-        {some, Recorder_instance} ->
-            send_with_status_recorder(Client_request, Recorder_instance);
-
-        none ->
-            send_with_status_to_httpc(Client_request)
-    end.
-
--file("src/dream_http_client/client.gleam", 1611).
+-file("src/dream_http_client/client.gleam", 1531).
 -spec handle_yielder_next_with_state(gleam@dynamic:dynamic_(), yielder_state()) -> gleam@yielder:step({ok,
         gleam@bytes_tree:bytes_tree()} |
     {error, binary()}, yielder_state()).
@@ -1446,7 +1386,7 @@ handle_yielder_next_with_state(Owner, State) ->
             {next, {error, Error_reason}, State}
     end.
 
--file("src/dream_http_client/client.gleam", 1594).
+-file("src/dream_http_client/client.gleam", 1514).
 -spec handle_yielder_start_with_state(yielder_state()) -> gleam@yielder:step({ok,
         gleam@bytes_tree:bytes_tree()} |
     {error, binary()}, yielder_state()).
@@ -1475,7 +1415,7 @@ handle_yielder_start_with_state(State) ->
             {next, {error, Error_reason}, State}
     end.
 
--file("src/dream_http_client/client.gleam", 1564).
+-file("src/dream_http_client/client.gleam", 1467).
 -spec handle_yielder_unfold_with_deps(yielder_state()) -> gleam@yielder:step({ok,
         gleam@bytes_tree:bytes_tree()} |
     {error, binary()}, yielder_state()).
@@ -1488,7 +1428,7 @@ handle_yielder_unfold_with_deps(State) ->
             handle_yielder_next_with_state(Owner, State)
     end.
 
--file("src/dream_http_client/client.gleam", 1519).
+-file("src/dream_http_client/client.gleam", 1421).
 -spec create_plain_yielder(gleam@http@request:request(binary()), integer()) -> gleam@yielder:yielder({ok,
         gleam@bytes_tree:bytes_tree()} |
     {error, binary()}).
@@ -1496,18 +1436,33 @@ create_plain_yielder(Http_request, Timeout_value) ->
     Initial_state = {yielder_state, none, Http_request, Timeout_value},
     gleam@yielder:unfold(Initial_state, fun handle_yielder_unfold_with_deps/1).
 
--file("src/dream_http_client/client.gleam", 1716).
+-file("src/dream_http_client/client.gleam", 1651).
 -spec save_streaming_recording(
     recording_yielder_state(),
     list(dream_http_client@recording:chunk())
 ) -> nil.
 save_streaming_recording(State, Chunks) ->
     Ordered_chunks = lists:reverse(Chunks),
-    Response = {streaming_response, 200, [], Ordered_chunks},
+    Status = case gleam@list:any(
+        erlang:element(7, State),
+        fun(H) ->
+            string:lowercase(erlang:element(1, H)) =:= <<"content-range"/utf8>>
+        end
+    ) of
+        true ->
+            206;
+
+        false ->
+            200
+    end,
+    Response = {streaming_response,
+        Status,
+        erlang:element(7, State),
+        Ordered_chunks},
     Rec = {recording, erlang:element(6, State), Response},
     dream_http_client@recorder:add_recording(erlang:element(5, State), Rec).
 
--file("src/dream_http_client/client.gleam", 1627).
+-file("src/dream_http_client/client.gleam", 1547).
 -spec get_time_ms() -> integer().
 get_time_ms() ->
     Native = erlang:monotonic_time(),
@@ -1517,7 +1472,7 @@ get_time_ms() ->
         erlang:binary_to_atom(<<"millisecond"/utf8>>)
     ).
 
--file("src/dream_http_client/client.gleam", 1679).
+-file("src/dream_http_client/client.gleam", 1614).
 -spec handle_recording_yielder_next(
     gleam@dynamic:dynamic_(),
     recording_yielder_state()
@@ -1529,7 +1484,7 @@ handle_recording_yielder_next(Owner, State) ->
         erlang:element(4, State)
     ) of
         {ok, {some, Bin}} ->
-            Delay = case erlang:element(8, State) of
+            Delay = case erlang:element(9, State) of
                 {some, Last_time} ->
                     Now - Last_time;
 
@@ -1543,20 +1498,21 @@ handle_recording_yielder_next(Owner, State) ->
                 erlang:element(4, State),
                 erlang:element(5, State),
                 erlang:element(6, State),
-                [Chunk | erlang:element(7, State)],
+                erlang:element(7, State),
+                [Chunk | erlang:element(8, State)],
                 {some, Now}},
             {next, {ok, gleam@bytes_tree:from_bit_array(Bin)}, New_state};
 
         {ok, none} ->
-            save_streaming_recording(State, erlang:element(7, State)),
+            save_streaming_recording(State, erlang:element(8, State)),
             done;
 
         {error, Error_reason} ->
-            save_streaming_recording(State, erlang:element(7, State)),
+            save_streaming_recording(State, erlang:element(8, State)),
             {next, {error, Error_reason}, State}
     end.
 
--file("src/dream_http_client/client.gleam", 1646).
+-file("src/dream_http_client/client.gleam", 1566).
 -spec handle_recording_yielder_start(recording_yielder_state()) -> gleam@yielder:step({ok,
         gleam@bytes_tree:bytes_tree()} |
     {error, binary()}, recording_yielder_state()).
@@ -1566,6 +1522,20 @@ handle_recording_yielder_start(State) ->
         erlang:element(4, State)
     ),
     Owner = dream_http_client@internal:extract_owner_pid(Request_result),
+    Start_headers = case dream_http_client@internal:get_stream_start_headers(
+        Owner,
+        erlang:element(4, State)
+    ) of
+        {ok, Headers} ->
+            Headers;
+
+        {error, Reason} ->
+            gleam_stdlib:println_error(
+                <<"Failed to fetch stream_start headers for recording: "/utf8,
+                    Reason/binary>>
+            ),
+            []
+    end,
     Now = get_time_ms(),
     case dream_http_client@internal:receive_next(
         Owner,
@@ -1579,19 +1549,31 @@ handle_recording_yielder_start(State) ->
                 erlang:element(4, State),
                 erlang:element(5, State),
                 erlang:element(6, State),
+                Start_headers,
                 [Chunk],
                 {some, Now}},
             {next, {ok, gleam@bytes_tree:from_bit_array(Bin)}, New_state};
 
         {ok, none} ->
-            save_streaming_recording(State, []),
+            save_streaming_recording(
+                {recording_yielder_state,
+                    erlang:element(2, State),
+                    erlang:element(3, State),
+                    erlang:element(4, State),
+                    erlang:element(5, State),
+                    erlang:element(6, State),
+                    Start_headers,
+                    erlang:element(8, State),
+                    erlang:element(9, State)},
+                []
+            ),
             done;
 
         {error, Error_reason} ->
             {next, {error, Error_reason}, State}
     end.
 
--file("src/dream_http_client/client.gleam", 1637).
+-file("src/dream_http_client/client.gleam", 1557).
 -spec handle_recording_yielder_unfold(recording_yielder_state()) -> gleam@yielder:step({ok,
         gleam@bytes_tree:bytes_tree()} |
     {error, binary()}, recording_yielder_state()).
@@ -1604,7 +1586,7 @@ handle_recording_yielder_unfold(State) ->
             handle_recording_yielder_next(Owner, State)
     end.
 
--file("src/dream_http_client/client.gleam", 1491).
+-file("src/dream_http_client/client.gleam", 1392).
 -spec stream_yielder_with_record_mode(
     client_request(),
     dream_http_client@recorder:recorder(),
@@ -1630,6 +1612,7 @@ stream_yielder_with_record_mode(
                 Recorder_instance,
                 Recorded_request,
                 [],
+                [],
                 none},
             gleam@yielder:unfold(
                 Initial_state,
@@ -1640,7 +1623,7 @@ stream_yielder_with_record_mode(
             create_plain_yielder(Http_request, Timeout_value)
     end.
 
--file("src/dream_http_client/client.gleam", 1473).
+-file("src/dream_http_client/client.gleam", 1374).
 -spec create_stream_yielder_from_client_request(client_request()) -> gleam@yielder:yielder({ok,
         gleam@bytes_tree:bytes_tree()} |
     {error, binary()}).
@@ -1660,7 +1643,7 @@ create_stream_yielder_from_client_request(Client_request) ->
             create_plain_yielder(Http_request, Timeout_value)
     end.
 
--file("src/dream_http_client/client.gleam", 1536).
+-file("src/dream_http_client/client.gleam", 1438).
 -spec convert_chunk_to_result(dream_http_client@recording:chunk()) -> {ok,
         gleam@bytes_tree:bytes_tree()} |
     {error, binary()}.
@@ -1668,7 +1651,7 @@ convert_chunk_to_result(Chunk) ->
     Data = gleam@bytes_tree:from_bit_array(erlang:element(2, Chunk)),
     {ok, Data}.
 
--file("src/dream_http_client/client.gleam", 1528).
+-file("src/dream_http_client/client.gleam", 1430).
 -spec create_yielder_from_chunks(list(dream_http_client@recording:chunk())) -> gleam@yielder:yielder({ok,
         gleam@bytes_tree:bytes_tree()} |
     {error, binary()}).
@@ -1677,7 +1660,7 @@ create_yielder_from_chunks(Chunks) ->
     _pipe@1 = gleam@yielder:from_list(_pipe),
     gleam@yielder:map(_pipe@1, fun convert_chunk_to_result/1).
 
--file("src/dream_http_client/client.gleam", 1459).
+-file("src/dream_http_client/client.gleam", 1360).
 -spec create_yielder_from_recorded_response(
     dream_http_client@recording:recorded_response()
 ) -> gleam@yielder:yielder({ok, gleam@bytes_tree:bytes_tree()} |
@@ -1692,7 +1675,7 @@ create_yielder_from_recorded_response(Response) ->
             gleam@yielder:single({ok, Chunk})
     end.
 
--file("src/dream_http_client/client.gleam", 1446).
+-file("src/dream_http_client/client.gleam", 1346).
 -spec stream_yielder_with_recorder(
     client_request(),
     dream_http_client@recorder:recorder()
@@ -1704,14 +1687,17 @@ stream_yielder_with_recorder(Client_request, Recorder_instance) ->
         Recorder_instance,
         Recorded_request
     ) of
-        {some, {recording, _, Response}} ->
+        {ok, {some, {recording, _, Response}}} ->
             create_yielder_from_recorded_response(Response);
 
-        none ->
-            create_stream_yielder_from_client_request(Client_request)
+        {ok, none} ->
+            create_stream_yielder_from_client_request(Client_request);
+
+        {error, Reason} ->
+            gleam@yielder:single({error, Reason})
     end.
 
--file("src/dream_http_client/client.gleam", 1436).
+-file("src/dream_http_client/client.gleam", 1336).
 ?DOC(
     " Stream HTTP response chunks using a yielder\n"
     "\n"
@@ -1724,7 +1710,20 @@ stream_yielder_with_recorder(Client_request, Recorder_instance) ->
     " - Simple file downloads\n"
     " - Scripts or one-off operations\n"
     "\n"
-    " **For OTP actors with concurrency, use `stream_messages()` instead.**\n"
+    " **For OTP actors with concurrency, use `start_stream()` instead.**\n"
+    "\n"
+    " ## Recording and Playback\n"
+    "\n"
+    " When a recorder is attached (via `recorder()`), this function fully supports\n"
+    " both recording and playback:\n"
+    "\n"
+    " - **Record mode**: Streams from the real server and records chunks to disk,\n"
+    "   capturing timing information between chunks for realistic replay.\n"
+    " - **Playback mode**: Yields recorded chunks from the fixture file. No network\n"
+    "   calls are made.\n"
+    "\n"
+    " The same `StreamingResponse` fixture format is shared with `start_stream()`,\n"
+    " so recordings made with either function can be played back by both.\n"
     "\n"
     " ## Error Semantics\n"
     "\n"
@@ -1762,7 +1761,7 @@ stream_yielder_with_recorder(Client_request, Recorder_instance) ->
     " import gleam/bytes_tree.{to_string}\n"
     " import gleam/io.{print, println_error}\n"
     "\n"
-    " client.new\n"
+    " client.new()\n"
     "   |> host(\"api.openai.com\")\n"
     "   |> path(\"/v1/chat/completions\")\n"
     "   |> stream_yielder()\n"
@@ -1788,7 +1787,7 @@ stream_yielder_with_recorder(Client_request, Recorder_instance) ->
     "\n"
     " // The stream automatically completes when done - no need to use take()!\n"
     " let chunks = \n"
-    "   client.new\n"
+    "   client.new()\n"
     "   |> host(\"example.com\")\n"
     "   |> path(\"/data\")\n"
     "   |> stream_yielder()\n"
@@ -1821,41 +1820,13 @@ stream_yielder(Client_request) ->
             create_stream_yielder_from_client_request(Client_request)
     end.
 
--file("src/dream_http_client/client.gleam", 1590).
--spec tuples_to_headers(list({binary(), binary()})) -> list(header()).
-tuples_to_headers(Tuples) ->
-    gleam@list:map(
-        Tuples,
-        fun(T) -> {header, erlang:element(1, T), erlang:element(2, T)} end
-    ).
-
--file("src/dream_http_client/client.gleam", 2422).
--spec ensure_recorder_table() -> nil.
-ensure_recorder_table() ->
-    case dream_httpc_shim:ets_table_exists(
-        <<"dream_http_client_stream_recorders"/utf8>>
-    ) of
-        true ->
-            nil;
-
-        false ->
-            dream_httpc_shim:ets_new(
-                <<"dream_http_client_stream_recorders"/utf8>>,
-                [erlang:binary_to_atom(<<"set"/utf8>>),
-                    erlang:binary_to_atom(<<"public"/utf8>>),
-                    erlang:binary_to_atom(<<"named_table"/utf8>>)]
-            ),
-            nil
-    end.
-
--file("src/dream_http_client/client.gleam", 2458).
+-file("src/dream_http_client/client.gleam", 2452).
 -spec store_message_stream_recorder(
     request_id(),
     dream_http_client@recorder:recorder(),
     dream_http_client@recording:recorded_request()
 ) -> nil.
 store_message_stream_recorder(Request_id, Rec, Recorded_req) ->
-    ensure_recorder_table(),
     {request_id, Id} = Request_id,
     dream_httpc_shim:ets_insert(
         <<"dream_http_client_stream_recorders"/utf8>>,
@@ -1863,10 +1834,11 @@ store_message_stream_recorder(Request_id, Rec, Recorded_req) ->
         Rec,
         Recorded_req,
         [],
+        [],
         none
     ).
 
--file("src/dream_http_client/client.gleam", 1812).
+-file("src/dream_http_client/client.gleam", 1760).
 -spec record_message_stream_if_needed(
     request_id(),
     gleam@option:option(dream_http_client@recorder:recorder()),
@@ -1891,7 +1863,7 @@ record_message_stream_if_needed(Request_id, Recorder_option, Recorded_request) -
             nil
     end.
 
--file("src/dream_http_client/client.gleam", 1880).
+-file("src/dream_http_client/client.gleam", 1828).
 -spec extract_error_reason(gleam@dynamic:dynamic_()) -> {ok, request_id()} |
     {error, binary()}.
 extract_error_reason(Result) ->
@@ -1914,7 +1886,7 @@ extract_error_reason(Result) ->
                     ")"/utf8>>}
     end.
 
--file("src/dream_http_client/client.gleam", 1871).
+-file("src/dream_http_client/client.gleam", 1819).
 -spec extract_request_id(gleam@dynamic:dynamic_()) -> {ok, request_id()} |
     {error, binary()}.
 extract_request_id(Result) ->
@@ -1935,7 +1907,7 @@ extract_request_id(Result) ->
                     (gleam@string:inspect(Decode_errors))/binary>>}
     end.
 
--file("src/dream_http_client/client.gleam", 1859).
+-file("src/dream_http_client/client.gleam", 1807).
 -spec parse_stream_start_tag(gleam@dynamic:dynamic_(), gleam@dynamic:dynamic_()) -> {ok,
         request_id()} |
     {error, binary()}.
@@ -1955,7 +1927,7 @@ parse_stream_start_tag(Tag_dyn, Result) ->
             {error, <<"Unknown response from httpc"/utf8>>}
     end.
 
--file("src/dream_http_client/client.gleam", 1850).
+-file("src/dream_http_client/client.gleam", 1798).
 -spec parse_stream_start_result(gleam@dynamic:dynamic_()) -> {ok, request_id()} |
     {error, binary()}.
 parse_stream_start_result(Result) ->
@@ -1976,7 +1948,7 @@ parse_stream_start_result(Result) ->
                     (gleam@string:inspect(Decode_errors))/binary>>}
     end.
 
--file("src/dream_http_client/client.gleam", 1777).
+-file("src/dream_http_client/client.gleam", 1725).
 -spec send_stream_messages_to_httpc(
     client_request(),
     gleam@option:option(dream_http_client@recorder:recorder()),
@@ -2012,14 +1984,14 @@ send_stream_messages_to_httpc(Client_request, Recorder_option, Recorded_request)
             {error, Error_reason}
     end.
 
--file("src/dream_http_client/client.gleam", 1770).
+-file("src/dream_http_client/client.gleam", 1718).
 -spec stream_messages_without_recorder(client_request()) -> {ok, request_id()} |
     {error, binary()}.
 stream_messages_without_recorder(Client_request) ->
     Recorded_request = client_request_to_recorded_request(Client_request),
     send_stream_messages_to_httpc(Client_request, none, Recorded_request).
 
--file("src/dream_http_client/client.gleam", 1748).
+-file("src/dream_http_client/client.gleam", 1694).
 -spec stream_messages_with_recorder(
     client_request(),
     dream_http_client@recorder:recorder()
@@ -2030,19 +2002,22 @@ stream_messages_with_recorder(Client_request, Recorder_instance) ->
         Recorder_instance,
         Recorded_request
     ) of
-        {some, _} ->
+        {ok, {some, _}} ->
             {error,
-                <<"Message-based streaming does not support playback mode. Use stream_yielder() instead."/utf8>>};
+                <<"Unexpected: recording found in stream_messages path. This should have been handled by start_stream() playback."/utf8>>};
 
-        none ->
+        {ok, none} ->
             send_stream_messages_to_httpc(
                 Client_request,
                 {some, Recorder_instance},
                 Recorded_request
-            )
+            );
+
+        {error, Reason} ->
+            {error, Reason}
     end.
 
--file("src/dream_http_client/client.gleam", 1739).
+-file("src/dream_http_client/client.gleam", 1686).
 -spec stream_messages(client_request()) -> {ok, request_id()} |
     {error, binary()}.
 stream_messages(Client_request) ->
@@ -2054,38 +2029,7 @@ stream_messages(Client_request) ->
             stream_messages_without_recorder(Client_request)
     end.
 
--file("src/dream_http_client/client.gleam", 2490).
--spec remove_message_stream_recorder(request_id()) -> nil.
-remove_message_stream_recorder(Request_id) ->
-    {request_id, Id} = Request_id,
-    dream_httpc_shim:ets_delete(
-        <<"dream_http_client_stream_recorders"/utf8>>,
-        Id
-    ),
-    nil.
-
--file("src/dream_http_client/client.gleam", 2554).
--spec finish_message_stream_recording(
-    request_id(),
-    message_stream_recorder_state()
-) -> nil.
-finish_message_stream_recording(Request_id, State) ->
-    Ordered_chunks = lists:reverse(erlang:element(4, State)),
-    Response = {streaming_response, 200, [], Ordered_chunks},
-    Rec = {recording, erlang:element(3, State), Response},
-    dream_http_client@recorder:add_recording(erlang:element(2, State), Rec),
-    remove_message_stream_recorder(Request_id).
-
 -file("src/dream_http_client/client.gleam", 2468).
--spec get_message_stream_recorder(request_id()) -> gleam@option:option(message_stream_recorder_state()).
-get_message_stream_recorder(Request_id) ->
-    {request_id, Id} = Request_id,
-    dream_httpc_shim:ets_lookup(
-        <<"dream_http_client_stream_recorders"/utf8>>,
-        Id
-    ).
-
--file("src/dream_http_client/client.gleam", 2475).
 -spec update_message_stream_recorder(
     request_id(),
     message_stream_recorder_state()
@@ -2098,10 +2042,57 @@ update_message_stream_recorder(Request_id, State) ->
         erlang:element(2, State),
         erlang:element(3, State),
         erlang:element(4, State),
-        erlang:element(5, State)
+        erlang:element(5, State),
+        erlang:element(6, State)
     ).
 
--file("src/dream_http_client/client.gleam", 2496).
+-file("src/dream_http_client/client.gleam", 2461).
+-spec get_message_stream_recorder(request_id()) -> gleam@option:option(message_stream_recorder_state()).
+get_message_stream_recorder(Request_id) ->
+    {request_id, Id} = Request_id,
+    dream_httpc_shim:ets_lookup(
+        <<"dream_http_client_stream_recorders"/utf8>>,
+        Id
+    ).
+
+-file("src/dream_http_client/client.gleam", 2484).
+-spec remove_message_stream_recorder(request_id()) -> nil.
+remove_message_stream_recorder(Request_id) ->
+    {request_id, Id} = Request_id,
+    dream_httpc_shim:ets_delete(
+        <<"dream_http_client_stream_recorders"/utf8>>,
+        Id
+    ),
+    nil.
+
+-file("src/dream_http_client/client.gleam", 2567).
+-spec finish_message_stream_recording(
+    request_id(),
+    message_stream_recorder_state()
+) -> nil.
+finish_message_stream_recording(Request_id, State) ->
+    Ordered_chunks = lists:reverse(erlang:element(5, State)),
+    Status = case gleam@list:any(
+        erlang:element(4, State),
+        fun(H) ->
+            string:lowercase(erlang:element(1, H)) =:= <<"content-range"/utf8>>
+        end
+    ) of
+        true ->
+            206;
+
+        false ->
+            200
+    end,
+    Response = {streaming_response,
+        Status,
+        erlang:element(4, State),
+        Ordered_chunks},
+    Rec = {recording, erlang:element(3, State), Response},
+    dream_http_client@recorder:add_recording(erlang:element(2, State), Rec),
+    remove_message_stream_recorder(Request_id).
+
+-file("src/dream_http_client/client.gleam", 2490).
 -spec record_stream_message(stream_message()) -> nil.
 record_stream_message(Message) ->
     case Message of
@@ -2109,7 +2100,7 @@ record_stream_message(Message) ->
             case get_message_stream_recorder(Request_id) of
                 {some, State} ->
                     Now = get_time_ms(),
-                    Delay = case erlang:element(5, State) of
+                    Delay = case erlang:element(6, State) of
                         {some, Last_time} ->
                             Now - Last_time;
 
@@ -2120,7 +2111,8 @@ record_stream_message(Message) ->
                     New_state = {message_stream_recorder_state,
                         erlang:element(2, State),
                         erlang:element(3, State),
-                        [Chunk | erlang:element(4, State)],
+                        erlang:element(4, State),
+                        [Chunk | erlang:element(5, State)],
                         {some, Now}},
                     update_message_stream_recorder(Request_id, New_state);
 
@@ -2128,10 +2120,24 @@ record_stream_message(Message) ->
                     nil
             end;
 
-        {stream_end, Request_id@1, _} ->
+        {stream_end, Request_id@1, Headers} ->
             case get_message_stream_recorder(Request_id@1) of
                 {some, State@1} ->
-                    finish_message_stream_recording(Request_id@1, State@1);
+                    Header_tuples = headers_to_tuples(Headers),
+                    Final_headers = case Header_tuples =:= [] of
+                        true ->
+                            erlang:element(4, State@1);
+
+                        false ->
+                            Header_tuples
+                    end,
+                    Updated = {message_stream_recorder_state,
+                        erlang:element(2, State@1),
+                        erlang:element(3, State@1),
+                        Final_headers,
+                        erlang:element(5, State@1),
+                        erlang:element(6, State@1)},
+                    finish_message_stream_recording(Request_id@1, Updated);
 
                 none ->
                     nil
@@ -2153,8 +2159,21 @@ record_stream_message(Message) ->
                     nil
             end;
 
-        {stream_start, _, _} ->
-            nil;
+        {stream_start, Request_id@3, Headers@1} ->
+            case get_message_stream_recorder(Request_id@3) of
+                {some, State@3} ->
+                    Header_tuples@1 = headers_to_tuples(Headers@1),
+                    New_state@1 = {message_stream_recorder_state,
+                        erlang:element(2, State@3),
+                        erlang:element(3, State@3),
+                        Header_tuples@1,
+                        erlang:element(5, State@3),
+                        erlang:element(6, State@3)},
+                    update_message_stream_recorder(Request_id@3, New_state@1);
+
+                none ->
+                    nil
+            end;
 
         {decode_error, Error_reason@1} ->
             gleam_stdlib:println_error(
@@ -2164,7 +2183,7 @@ record_stream_message(Message) ->
             nil
     end.
 
--file("src/dream_http_client/client.gleam", 1947).
+-file("src/dream_http_client/client.gleam", 1895).
 -spec handle_tag_decode_error(
     list(gleam@dynamic@decode:decode_error()),
     {ok, binary()} | {error, list(gleam@dynamic@decode:decode_error())}
@@ -2185,7 +2204,7 @@ handle_tag_decode_error(Decode_error, Req_id_result) ->
             {decode_error, Full_error_msg}
     end.
 
--file("src/dream_http_client/client.gleam", 2109).
+-file("src/dream_http_client/client.gleam", 2057).
 -spec decode_error_reason(request_id(), gleam@dynamic:dynamic_()) -> stream_message().
 decode_error_reason(Req_id, Reason_dyn) ->
     case gleam@dynamic@decode:run(
@@ -2195,14 +2214,28 @@ decode_error_reason(Req_id, Reason_dyn) ->
         {ok, Reason} ->
             {stream_error, Req_id, Reason};
 
-        {error, Decode_error} ->
-            Error_msg = <<<<"Stream error (failed to decode error string: "/utf8,
-                    (gleam@string:inspect(Decode_error))/binary>>/binary,
-                ")"/utf8>>,
-            {stream_error, Req_id, Error_msg}
+        {error, _} ->
+            case gleam@dynamic@decode:run(
+                Reason_dyn,
+                {decoder, fun gleam@dynamic@decode:decode_bit_array/1}
+            ) of
+                {ok, Bytes} ->
+                    case gleam@bit_array:to_string(Bytes) of
+                        {ok, S} ->
+                            {stream_error, Req_id, S};
+
+                        {error, _} ->
+                            {stream_error,
+                                Req_id,
+                                gleam@string:inspect(Reason_dyn)}
+                    end;
+
+                {error, _} ->
+                    {stream_error, Req_id, gleam@string:inspect(Reason_dyn)}
+            end
     end.
 
--file("src/dream_http_client/client.gleam", 2093).
+-file("src/dream_http_client/client.gleam", 2041).
 -spec decode_stream_error(
     request_id(),
     {ok, gleam@dynamic:dynamic_()} |
@@ -2220,12 +2253,12 @@ decode_stream_error(Req_id, Data_result) ->
             {stream_error, Req_id, Error_msg}
     end.
 
--file("src/dream_http_client/client.gleam", 2141).
+-file("src/dream_http_client/client.gleam", 2091).
 -spec pair_with_name(binary(), binary()) -> {binary(), binary()}.
 pair_with_name(Value, Name) ->
     {Name, Value}.
 
--file("src/dream_http_client/client.gleam", 2136).
+-file("src/dream_http_client/client.gleam", 2086).
 -spec decode_header_value(binary()) -> gleam@dynamic@decode:decoder({binary(),
     binary()}).
 decode_header_value(Name) ->
@@ -2238,7 +2271,7 @@ decode_header_value(Name) ->
         fun(_capture) -> pair_with_name(_capture, Name) end
     ).
 
--file("src/dream_http_client/client.gleam", 2125).
+-file("src/dream_http_client/client.gleam", 2075).
 -spec decode_headers(gleam@dynamic:dynamic_()) -> {ok,
         list({binary(), binary()})} |
     {error, list(gleam@dynamic@decode:decode_error())}.
@@ -2252,7 +2285,7 @@ decode_headers(Dyn) ->
     end,
     gleam@dynamic@decode:run(Dyn, gleam@dynamic@decode:list(Header_decoder)).
 
--file("src/dream_http_client/client.gleam", 2078).
+-file("src/dream_http_client/client.gleam", 2026).
 -spec decode_stream_end_headers(request_id(), gleam@dynamic:dynamic_()) -> stream_message().
 decode_stream_end_headers(Req_id, Headers_dyn) ->
     case decode_headers(Headers_dyn) of
@@ -2265,7 +2298,7 @@ decode_stream_end_headers(Req_id, Headers_dyn) ->
             {stream_error, Req_id, Error_msg}
     end.
 
--file("src/dream_http_client/client.gleam", 2063).
+-file("src/dream_http_client/client.gleam", 2011).
 -spec decode_stream_end(
     request_id(),
     {ok, gleam@dynamic:dynamic_()} |
@@ -2282,7 +2315,7 @@ decode_stream_end(Req_id, Data_result) ->
             {stream_error, Req_id, Error_msg}
     end.
 
--file("src/dream_http_client/client.gleam", 2051).
+-file("src/dream_http_client/client.gleam", 1999).
 -spec decode_chunk_data(request_id(), gleam@dynamic:dynamic_()) -> stream_message().
 decode_chunk_data(Req_id, Data_dyn) ->
     case gleam@dynamic@decode:run(
@@ -2298,7 +2331,7 @@ decode_chunk_data(Req_id, Data_dyn) ->
             {stream_error, Req_id, Error_msg}
     end.
 
--file("src/dream_http_client/client.gleam", 2036).
+-file("src/dream_http_client/client.gleam", 1984).
 -spec decode_chunk(
     request_id(),
     {ok, gleam@dynamic:dynamic_()} |
@@ -2315,7 +2348,7 @@ decode_chunk(Req_id, Data_result) ->
             {stream_error, Req_id, Error_msg}
     end.
 
--file("src/dream_http_client/client.gleam", 2021).
+-file("src/dream_http_client/client.gleam", 1969).
 -spec decode_stream_start_headers(request_id(), gleam@dynamic:dynamic_()) -> stream_message().
 decode_stream_start_headers(Req_id, Headers_dyn) ->
     case decode_headers(Headers_dyn) of
@@ -2328,7 +2361,7 @@ decode_stream_start_headers(Req_id, Headers_dyn) ->
             {stream_error, Req_id, Error_msg}
     end.
 
--file("src/dream_http_client/client.gleam", 2006).
+-file("src/dream_http_client/client.gleam", 1954).
 -spec decode_stream_start(
     request_id(),
     {ok, gleam@dynamic:dynamic_()} |
@@ -2345,7 +2378,7 @@ decode_stream_start(Req_id, Data_result) ->
             {stream_error, Req_id, Error_msg}
     end.
 
--file("src/dream_http_client/client.gleam", 1991).
+-file("src/dream_http_client/client.gleam", 1939).
 -spec decode_by_tag(
     binary(),
     request_id(),
@@ -2373,7 +2406,7 @@ decode_by_tag(Tag, Req_id, Data_result) ->
                     Tag/binary>>}
     end.
 
--file("src/dream_http_client/client.gleam", 1970).
+-file("src/dream_http_client/client.gleam", 1918).
 -spec decode_with_tag(
     gleam@dynamic:dynamic_(),
     {ok, binary()} | {error, list(gleam@dynamic@decode:decode_error())},
@@ -2396,7 +2429,7 @@ decode_with_tag(Tag_dyn, Req_id_result, Data_result) ->
             {decode_error, Error_msg}
     end.
 
--file("src/dream_http_client/client.gleam", 1935).
+-file("src/dream_http_client/client.gleam", 1883).
 -spec decode_simplified_message(gleam@dynamic:dynamic_()) -> stream_message().
 decode_simplified_message(Dyn) ->
     Tag_result = gleam@dynamic@decode:run(
@@ -2428,27 +2461,27 @@ decode_simplified_message(Dyn) ->
             handle_tag_decode_error(Decode_error, Req_id_result)
     end.
 
--file("src/dream_http_client/client.gleam", 1920).
+-file("src/dream_http_client/client.gleam", 1868).
 -spec apply_mapper_to_dynamic(
     gleam@dynamic:dynamic_(),
-    fun((stream_message()) -> BJE)
-) -> BJE.
+    fun((stream_message()) -> JYS)
+) -> JYS.
 apply_mapper_to_dynamic(Dyn, Mapper) ->
     Simplified = dream_httpc_shim:decode_stream_message_for_selector(Dyn),
     Stream_msg = decode_simplified_message(Simplified),
     record_stream_message(Stream_msg),
     Mapper(Stream_msg).
 
--file("src/dream_http_client/client.gleam", 1911).
--spec create_selector_mapper(fun((stream_message()) -> BJD)) -> fun((gleam@dynamic:dynamic_()) -> BJD).
+-file("src/dream_http_client/client.gleam", 1859).
+-spec create_selector_mapper(fun((stream_message()) -> JYR)) -> fun((gleam@dynamic:dynamic_()) -> JYR).
 create_selector_mapper(Mapper) ->
     fun(_capture) -> apply_mapper_to_dynamic(_capture, Mapper) end.
 
--file("src/dream_http_client/client.gleam", 1899).
+-file("src/dream_http_client/client.gleam", 1847).
 -spec select_stream_messages(
-    gleam@erlang@process:selector(BJA),
-    fun((stream_message()) -> BJA)
-) -> gleam@erlang@process:selector(BJA).
+    gleam@erlang@process:selector(JYO),
+    fun((stream_message()) -> JYO)
+) -> gleam@erlang@process:selector(JYO).
 select_stream_messages(Selector, Mapper) ->
     _pipe = Selector,
     gleam@erlang@process:select_record(
@@ -2458,14 +2491,15 @@ select_stream_messages(Selector, Mapper) ->
         create_selector_mapper(Mapper)
     ).
 
--file("src/dream_http_client/client.gleam", 2242).
+-file("src/dream_http_client/client.gleam", 2263).
 -spec handle_stream_message(
     stream_message(),
     request_id(),
     client_request(),
-    gleam@erlang@process:selector(stream_message())
+    gleam@erlang@process:selector(stream_message()),
+    integer()
 ) -> nil.
-handle_stream_message(Message, Req_id, Request, Selector) ->
+handle_stream_message(Message, Req_id, Request, Selector, Timeout_ms) ->
     case Message of
         {stream_start, Stream_req_id, Headers} ->
             case Stream_req_id =:= Req_id of
@@ -2477,10 +2511,10 @@ handle_stream_message(Message, Req_id, Request, Selector) ->
                         none ->
                             nil
                     end,
-                    process_stream_loop(Selector, Req_id, Request);
+                    process_stream_loop(Selector, Req_id, Request, Timeout_ms);
 
                 false ->
-                    process_stream_loop(Selector, Req_id, Request)
+                    process_stream_loop(Selector, Req_id, Request, Timeout_ms)
             end;
 
         {chunk, Stream_req_id@1, Data} ->
@@ -2493,10 +2527,10 @@ handle_stream_message(Message, Req_id, Request, Selector) ->
                         none ->
                             nil
                     end,
-                    process_stream_loop(Selector, Req_id, Request);
+                    process_stream_loop(Selector, Req_id, Request, Timeout_ms);
 
                 false ->
-                    process_stream_loop(Selector, Req_id, Request)
+                    process_stream_loop(Selector, Req_id, Request, Timeout_ms)
             end;
 
         {stream_end, Stream_req_id@2, Headers@1} ->
@@ -2512,7 +2546,7 @@ handle_stream_message(Message, Req_id, Request, Selector) ->
                     nil;
 
                 false ->
-                    process_stream_loop(Selector, Req_id, Request)
+                    process_stream_loop(Selector, Req_id, Request, Timeout_ms)
             end;
 
         {stream_error, Stream_req_id@3, Reason} ->
@@ -2528,7 +2562,7 @@ handle_stream_message(Message, Req_id, Request, Selector) ->
                     nil;
 
                 false ->
-                    process_stream_loop(Selector, Req_id, Request)
+                    process_stream_loop(Selector, Req_id, Request, Timeout_ms)
             end;
 
         {decode_error, Reason@1} ->
@@ -2542,16 +2576,23 @@ handle_stream_message(Message, Req_id, Request, Selector) ->
             nil
     end.
 
--file("src/dream_http_client/client.gleam", 2223).
+-file("src/dream_http_client/client.gleam", 2243).
 -spec process_stream_loop(
     gleam@erlang@process:selector(stream_message()),
     request_id(),
-    client_request()
+    client_request(),
+    integer()
 ) -> nil.
-process_stream_loop(Selector, Req_id, Request) ->
-    case gleam_erlang_ffi:select(Selector, 30000) of
+process_stream_loop(Selector, Req_id, Request, Timeout_ms) ->
+    case gleam_erlang_ffi:select(Selector, Timeout_ms) of
         {ok, Message} ->
-            handle_stream_message(Message, Req_id, Request, Selector);
+            handle_stream_message(
+                Message,
+                Req_id,
+                Request,
+                Selector,
+                Timeout_ms
+            );
 
         {error, nil} ->
             case erlang:element(15, Request) of
@@ -2563,42 +2604,165 @@ process_stream_loop(Selector, Req_id, Request) ->
             end
     end.
 
--file("src/dream_http_client/client.gleam", 2201).
--spec run_stream_process(client_request()) -> nil.
-run_stream_process(Request) ->
-    Selector = begin
-        _pipe = gleam_erlang_ffi:new_selector(),
-        select_stream_messages(_pipe, fun(Msg) -> Msg end)
-    end,
-    case stream_messages(Request) of
-        {error, Reason} ->
-            case erlang:element(15, Request) of
-                {some, On_error} ->
-                    On_error(Reason);
+-file("src/dream_http_client/client.gleam", 2205).
+?DOC(
+    " Replay a recorded response by directly invoking the stream callbacks.\n"
+    " Handles both StreamingResponse (multiple chunks) and BlockingResponse\n"
+    " (body delivered as a single chunk).\n"
+).
+-spec replay_recorded_stream(
+    client_request(),
+    dream_http_client@recording:recorded_response()
+) -> nil.
+replay_recorded_stream(Request, Response) ->
+    case Response of
+        {streaming_response, _, Headers, Chunks} ->
+            case erlang:element(12, Request) of
+                {some, Cb} ->
+                    Cb(
+                        gleam@list:map(
+                            Headers,
+                            fun(H) ->
+                                {header,
+                                    erlang:element(1, H),
+                                    erlang:element(2, H)}
+                            end
+                        )
+                    );
+
+                none ->
+                    nil
+            end,
+            gleam@list:each(
+                Chunks,
+                fun(Chunk) -> case erlang:element(13, Request) of
+                        {some, Cb@1} ->
+                            Cb@1(erlang:element(2, Chunk));
+
+                        none ->
+                            nil
+                    end end
+            ),
+            case erlang:element(14, Request) of
+                {some, Cb@2} ->
+                    Cb@2([]);
 
                 none ->
                     nil
             end;
 
-        {ok, Req_id} ->
-            process_stream_loop(Selector, Req_id, Request)
+        {blocking_response, _, Headers@1, Body} ->
+            case erlang:element(12, Request) of
+                {some, Cb@3} ->
+                    Cb@3(
+                        gleam@list:map(
+                            Headers@1,
+                            fun(H@1) ->
+                                {header,
+                                    erlang:element(1, H@1),
+                                    erlang:element(2, H@1)}
+                            end
+                        )
+                    );
+
+                none ->
+                    nil
+            end,
+            case erlang:element(13, Request) of
+                {some, Cb@4} ->
+                    Cb@4(<<Body/binary>>);
+
+                none ->
+                    nil
+            end,
+            case erlang:element(14, Request) of
+                {some, Cb@5} ->
+                    Cb@5([]);
+
+                none ->
+                    nil
+            end
     end.
 
--file("src/dream_http_client/client.gleam", 2193).
--spec ensure_ets_tables() -> nil.
-ensure_ets_tables() ->
-    ensure_recorder_table(),
-    dream_httpc_shim:ensure_ref_mapping_table().
+-file("src/dream_http_client/client.gleam", 2186).
+?DOC(
+    " Check if a matching recording exists and replay it via callbacks.\n"
+    " Returns True if playback was handled, False if the caller should\n"
+    " proceed with a real HTTP stream.\n"
+).
+-spec maybe_replay_from_recording(client_request()) -> boolean().
+maybe_replay_from_recording(Request) ->
+    case erlang:element(11, Request) of
+        {some, Rec} ->
+            Recorded_request = client_request_to_recorded_request(Request),
+            case dream_http_client@recorder:find_recording(
+                Rec,
+                Recorded_request
+            ) of
+                {ok, {some, {recording, _, Response}}} ->
+                    replay_recorded_stream(Request, Response),
+                    true;
 
--file("src/dream_http_client/client.gleam", 2182).
+                _ ->
+                    false
+            end;
+
+        none ->
+            false
+    end.
+
+-file("src/dream_http_client/client.gleam", 2153).
+-spec run_stream_process(client_request()) -> nil.
+run_stream_process(Request) ->
+    case maybe_replay_from_recording(Request) of
+        true ->
+            nil;
+
+        false ->
+            Selector = begin
+                _pipe = gleam_erlang_ffi:new_selector(),
+                select_stream_messages(_pipe, fun(Msg) -> Msg end)
+            end,
+            Timeout_ms = resolve_timeout(Request),
+            case stream_messages(Request) of
+                {error, Reason} ->
+                    case erlang:element(15, Request) of
+                        {some, On_error} ->
+                            On_error(Reason);
+
+                        none ->
+                            nil
+                    end;
+
+                {ok, Req_id} ->
+                    process_stream_loop(Selector, Req_id, Request, Timeout_ms)
+            end
+    end.
+
+-file("src/dream_http_client/client.gleam", 2147).
 ?DOC(
     " Start an HTTP stream with callback handlers\n"
     "\n"
     " Spawns a dedicated process to handle HTTP streaming and calls your callbacks\n"
-    " as messages arrive. This is the recommended API for streaming.\n"
+    " as messages arrive. This is the recommended API for streaming in OTP\n"
+    " applications and concurrent contexts.\n"
     "\n"
     " Returns a `StreamHandle` immediately (non-blocking). The stream runs in a\n"
     " separate process, and your callbacks execute in that process.\n"
+    "\n"
+    " ## Recording and Playback\n"
+    "\n"
+    " When a recorder is attached (via `recorder()`), this function fully supports\n"
+    " both recording and playback:\n"
+    "\n"
+    " - **Record mode**: Streams from the real server and records chunks to disk.\n"
+    "   The recorded fixture captures each chunk along with timing information.\n"
+    " - **Playback mode**: Replays recorded chunks directly via your callbacks —\n"
+    "   `on_stream_start`, `on_stream_chunk`, and `on_stream_end` are called in\n"
+    "   sequence with the recorded data. No network calls are made.\n"
+    "\n"
+    " The same `StreamingResponse` fixture format is shared with `stream_yielder()`,\n"
+    " so recordings made with either function can be played back by both.\n"
     "\n"
     " ## Parameters\n"
     "\n"
@@ -2612,7 +2776,7 @@ ensure_ets_tables() ->
     " ## Example\n"
     "\n"
     " ```gleam\n"
-    " let assert Ok(stream) = client.new\n"
+    " let assert Ok(stream) = client.new()\n"
     "   |> client.host(\"api.openai.com\")\n"
     "   |> client.path(\"/v1/chat/completions\")\n"
     "   |> client.on_stream_chunk(fn(data) {\n"
@@ -2633,11 +2797,10 @@ ensure_ets_tables() ->
 -spec start_stream(client_request()) -> {ok, stream_handle()} |
     {error, binary()}.
 start_stream(Request) ->
-    ensure_ets_tables(),
     Stream_pid = proc_lib:spawn(fun() -> run_stream_process(Request) end),
     {ok, {stream_handle, Stream_pid}}.
 
--file("src/dream_http_client/client.gleam", 2323).
+-file("src/dream_http_client/client.gleam", 2345).
 ?DOC(
     " Cancel a stream started with start_stream()\n"
     "\n"
@@ -2657,7 +2820,7 @@ cancel_stream_handle(Handle) ->
     {stream_handle, Pid} = Handle,
     gleam@erlang@process:kill(Pid).
 
--file("src/dream_http_client/client.gleam", 2341).
+-file("src/dream_http_client/client.gleam", 2363).
 ?DOC(
     " Check if a stream is still active\n"
     "\n"
@@ -2678,7 +2841,7 @@ is_stream_active(Handle) ->
     {stream_handle, Pid} = Handle,
     erlang:is_process_alive(Pid).
 
--file("src/dream_http_client/client.gleam", 2363).
+-file("src/dream_http_client/client.gleam", 2385).
 ?DOC(
     " Wait for a stream to complete\n"
     "\n"
@@ -2710,32 +2873,23 @@ await_stream(Handle) ->
             nil
     end.
 
--file("src/dream_http_client/client.gleam", 2400).
+-file("src/dream_http_client/client.gleam", 2413).
 ?DOC(
     " Cancel an active streaming request (low-level API)\n"
     "\n"
-    " Cancels an HTTP stream that was started with `stream_messages()`.\n"
-    " After cancellation, no more messages will be sent to your process.\n"
+    " Cancels an HTTP stream given its `RequestId`.\n"
     "\n"
-    " **Note:** This is a low-level API. Most users should use `start_stream()`\n"
-    " and `cancel_stream_handle()` instead.\n"
+    " **Note:** Most users should use `start_stream()` and `cancel_stream_handle()`\n"
+    " instead. `cancel_stream()` exists primarily to support internal stream\n"
+    " machinery and advanced integrations.\n"
     "\n"
     " ## Parameters\n"
     "\n"
-    " - `request_id`: The request ID returned from `stream_messages()`\n"
+    " - `request_id`: The request ID for an active internal stream\n"
     "\n"
     " ## Example\n"
     "\n"
-    " ```gleam\n"
-    " import dream_http_client/client.{host, stream_messages, cancel_stream}\n"
-    "\n"
-    " let assert Ok(req_id) = client.new\n"
-    "   |> host(\"api.example.com\")\n"
-    "   |> stream_messages()\n"
-    "\n"
-    " // Later, cancel the stream\n"
-    " cancel_stream(req_id)\n"
-    " ```\n"
+    " This is typically not called directly unless you already have a `RequestId`.\n"
 ).
 -spec cancel_stream(request_id()) -> nil.
 cancel_stream(Request_id) ->

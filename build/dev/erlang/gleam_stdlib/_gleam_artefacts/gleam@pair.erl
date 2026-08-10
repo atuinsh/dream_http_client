@@ -11,55 +11,52 @@
 -define(DOC(Str), -compile([])).
 -endif.
 
--file("src/gleam/pair.gleam", 10).
+-file("src/gleam/pair.gleam", 9).
 ?DOC(
     " Returns the first element in a pair.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " first(#(1, 2))\n"
-    " // -> 1\n"
+    " assert pair.first(#(1, 2)) == 1\n"
     " ```\n"
 ).
--spec first({CLH, any()}) -> CLH.
+-spec first({CLZ, any()}) -> CLZ.
 first(Pair) ->
     {A, _} = Pair,
     A.
 
--file("src/gleam/pair.gleam", 24).
+-file("src/gleam/pair.gleam", 22).
 ?DOC(
     " Returns the second element in a pair.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " second(#(1, 2))\n"
-    " // -> 2\n"
+    " assert pair.second(#(1, 2)) == 2\n"
     " ```\n"
 ).
--spec second({any(), CLK}) -> CLK.
+-spec second({any(), CMC}) -> CMC.
 second(Pair) ->
     {_, A} = Pair,
     A.
 
--file("src/gleam/pair.gleam", 38).
+-file("src/gleam/pair.gleam", 35).
 ?DOC(
     " Returns a new pair with the elements swapped.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " swap(#(1, 2))\n"
-    " // -> #(2, 1)\n"
+    " assert pair.swap(#(1, 2)) == #(2, 1)\n"
     " ```\n"
 ).
--spec swap({CLL, CLM}) -> {CLM, CLL}.
+-spec swap({CMD, CME}) -> {CME, CMD}.
 swap(Pair) ->
     {A, B} = Pair,
     {B, A}.
 
--file("src/gleam/pair.gleam", 53).
+-file("src/gleam/pair.gleam", 49).
 ?DOC(
     " Returns a new pair with the first element having had `with` applied to\n"
     " it.\n"
@@ -67,16 +64,15 @@ swap(Pair) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " #(1, 2) |> map_first(fn(n) { n * 2 })\n"
-    " // -> #(2, 2)\n"
+    " assert #(1, 2) |> pair.map_first(fn(n) { n * 2 }) == #(2, 2)\n"
     " ```\n"
 ).
--spec map_first({CLN, CLO}, fun((CLN) -> CLP)) -> {CLP, CLO}.
+-spec map_first({CMF, CMG}, fun((CMF) -> CMH)) -> {CMH, CMG}.
 map_first(Pair, Fun) ->
     {A, B} = Pair,
     {Fun(A), B}.
 
--file("src/gleam/pair.gleam", 68).
+-file("src/gleam/pair.gleam", 63).
 ?DOC(
     " Returns a new pair with the second element having had `with` applied to\n"
     " it.\n"
@@ -84,27 +80,25 @@ map_first(Pair, Fun) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " #(1, 2) |> map_second(fn(n) { n * 2 })\n"
-    " // -> #(1, 4)\n"
+    " assert #(1, 2) |> pair.map_second(fn(n) { n * 2 }) == #(1, 4)\n"
     " ```\n"
 ).
--spec map_second({CLQ, CLR}, fun((CLR) -> CLS)) -> {CLQ, CLS}.
+-spec map_second({CMI, CMJ}, fun((CMJ) -> CMK)) -> {CMI, CMK}.
 map_second(Pair, Fun) ->
     {A, B} = Pair,
     {A, Fun(B)}.
 
--file("src/gleam/pair.gleam", 83).
+-file("src/gleam/pair.gleam", 77).
 ?DOC(
     " Returns a new pair with the given elements. This can also be done using the dedicated\n"
     " syntax instead: `new(1, 2) == #(1, 2)`.\n"
     "\n"
-    " ## Examples\n"
+    " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " new(1, 2)\n"
-    " // -> #(1, 2)\n"
+    " assert pair.new(1, 2) == #(1, 2)\n"
     " ```\n"
 ).
--spec new(CLT, CLU) -> {CLT, CLU}.
+-spec new(CML, CMM) -> {CML, CMM}.
 new(First, Second) ->
     {First, Second}.

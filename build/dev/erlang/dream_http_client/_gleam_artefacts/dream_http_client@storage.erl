@@ -115,7 +115,7 @@ load_recordings(Directory) ->
                     (gleam@string:inspect(Read_error@1))/binary>>}
     end.
 
--file("src/dream_http_client/storage.gleam", 388).
+-file("src/dream_http_client/storage.gleam", 408).
 ?DOC(" Generate a hash from a string\n").
 -spec generate_hash(binary()) -> binary().
 generate_hash(Input) ->
@@ -124,7 +124,7 @@ generate_hash(Input) ->
     _pipe = gleam_stdlib:base16_encode(Hash_bits),
     string:lowercase(_pipe).
 
--file("src/dream_http_client/storage.gleam", 380).
+-file("src/dream_http_client/storage.gleam", 400).
 ?DOC(" Truncate a string to a maximum length\n").
 -spec truncate_string(binary(), integer()) -> binary().
 truncate_string(Input, Max_length) ->
@@ -136,7 +136,7 @@ truncate_string(Input, Max_length) ->
             Input
     end.
 
--file("src/dream_http_client/storage.gleam", 314).
+-file("src/dream_http_client/storage.gleam", 334).
 ?DOC(
     " Sanitize a string to be safe for use in filenames\n"
     "\n"
@@ -348,7 +348,7 @@ sanitize_for_filename(Input) ->
             end end),
     gleam@string:join(_pipe@2, <<""/utf8>>).
 
--file("src/dream_http_client/storage.gleam", 295).
+-file("src/dream_http_client/storage.gleam", 315).
 -spec method_to_string(gleam@http:method()) -> binary().
 method_to_string(Method) ->
     case Method of
@@ -383,17 +383,22 @@ method_to_string(Method) ->
             string:uppercase(S)
     end.
 
--file("src/dream_http_client/storage.gleam", 266).
+-file("src/dream_http_client/storage.gleam", 282).
 ?DOC(
     " Build a unique filename for a recording based on the request\n"
     "\n"
-    " Creates a filename with the format: `{method}_{host}_{path}_{hash}.json`\n"
-    " The hash ensures uniqueness even for requests with different query params, headers, or body.\n"
+    " Creates a filename with the format:\n"
+    "\n"
+    " `{method}_{host}_{path}_{key_hash}_{content_hash}.json`\n"
+    "\n"
+    " - `key_hash` groups recordings by match key\n"
+    " - `content_hash` prevents overwrites when multiple recordings share the same key\n"
     "\n"
     " ## Parameters\n"
     "\n"
     " - `request`: The request to generate a filename for\n"
-    " - `matching_config`: The matching configuration used to build the signature\n"
+    " - `key`: The match key string used for grouping\n"
+    " - `content`: The JSON file content (used for the content hash)\n"
     "\n"
     " ## Returns\n"
     "\n"
@@ -407,9 +412,10 @@ method_to_string(Method) ->
 ).
 -spec build_filename(
     dream_http_client@recording:recorded_request(),
-    dream_http_client@matching:matching_config()
+    binary(),
+    binary()
 ) -> binary().
-build_filename(Request, Matching_config) ->
+build_filename(Request, Key, Content) ->
     Method_part = sanitize_for_filename(
         method_to_string(erlang:element(2, Request))
     ),
@@ -420,31 +426,32 @@ build_filename(Request, Matching_config) ->
         _pipe@2 = sanitize_for_filename(_pipe@1),
         truncate_string(_pipe@2, 50)
     end,
-    Signature = dream_http_client@matching:build_signature(
-        Request,
-        Matching_config
-    ),
-    Hash = generate_hash(Signature),
-    Hash_short = gleam@string:slice(Hash, 0, 6),
-    <<<<<<<<<<<<<<Method_part/binary, "_"/utf8>>/binary, Host_part/binary>>/binary,
+    Key_hash_short = gleam@string:slice(generate_hash(Key), 0, 6),
+    Content_hash_short = gleam@string:slice(generate_hash(Content), 0, 6),
+    <<<<<<<<<<<<<<<<<<Method_part/binary, "_"/utf8>>/binary, Host_part/binary>>/binary,
+                                "_"/utf8>>/binary,
+                            Path_part/binary>>/binary,
                         "_"/utf8>>/binary,
-                    Path_part/binary>>/binary,
+                    Key_hash_short/binary>>/binary,
                 "_"/utf8>>/binary,
-            Hash_short/binary>>/binary,
+            Content_hash_short/binary>>/binary,
         ".json"/utf8>>.
 
--file("src/dream_http_client/storage.gleam", 134).
+-file("src/dream_http_client/storage.gleam", 141).
 ?DOC(
     " Save a single recording immediately to its own file\n"
     "\n"
-    " Writes a single recording to an individual file based on the request signature.\n"
-    " The filename is generated from the request method, host, path, and a hash for uniqueness.\n"
+    " Writes a single recording to an individual file.\n"
+    "\n"
+    " The filename includes human-readable parts (method/host/path) plus a short\n"
+    " hash of the **match key** and a short hash of the **file content**. This\n"
+    " avoids overwriting when multiple recordings share the same key.\n"
     "\n"
     " ## Parameters\n"
     "\n"
     " - `directory`: The directory where the recording file will be written\n"
     " - `rec`: The recording to save\n"
-    " - `matching_config`: The matching configuration used to generate the filename signature\n"
+    " - `key`: The match key string for this request (should match the recorder's key function)\n"
     "\n"
     " ## Returns\n"
     "\n"
@@ -455,8 +462,12 @@ build_filename(Request, Matching_config) ->
     "\n"
     " ```gleam\n"
     " let rec = recording.Recording(request: req, response: resp)\n"
-    " let config = matching.match_url_only()\n"
-    " case storage.save_recording_immediately(\"mocks/api\", rec, config) {\n"
+    "\n"
+    " // Compute a key string using the same key policy you use for playback:\n"
+    " let key_fn = matching.request_key(method: True, url: True, headers: False, body: False)\n"
+    " let key = key_fn(rec.request)\n"
+    "\n"
+    " case storage.save_recording_immediately(\"mocks/api\", rec, key) {\n"
     "   Ok(_) -> io.println(\"Saved recording\")\n"
     "   Error(reason) -> io.println_error(\"Failed to save: \" <> reason)\n"
     " }\n"
@@ -471,11 +482,9 @@ build_filename(Request, Matching_config) ->
 -spec save_recording_immediately(
     binary(),
     dream_http_client@recording:recording(),
-    dream_http_client@matching:matching_config()
+    binary()
 ) -> {ok, nil} | {error, binary()}.
-save_recording_immediately(Directory, Rec, Matching_config) ->
-    Filename = build_filename(erlang:element(2, Rec), Matching_config),
-    File_path = <<<<Directory/binary, "/"/utf8>>/binary, Filename/binary>>,
+save_recording_immediately(Directory, Rec, Key) ->
     _pipe = case simplifile:create_directory_all(Directory) of
         {ok, nil} ->
             {ok, nil};
@@ -497,7 +506,10 @@ save_recording_immediately(Directory, Rec, Matching_config) ->
                 Recording_file
             ),
             Json_string = gleam@json:to_string(Json_value),
-            case simplifile:write(File_path, Json_string) of
+            Filename = build_filename(erlang:element(2, Rec), Key, Json_string),
+            File_path = <<<<Directory/binary, "/"/utf8>>/binary,
+                Filename/binary>>,
+            case dream_http_client_fs_shim:atomic_write(File_path, Json_string) of
                 {ok, nil} ->
                     {ok, nil};
 
@@ -511,7 +523,7 @@ save_recording_immediately(Directory, Rec, Matching_config) ->
         end
     ).
 
--file("src/dream_http_client/storage.gleam", 217).
+-file("src/dream_http_client/storage.gleam", 227).
 ?DOC(
     " Save multiple recordings to individual files\n"
     "\n"
@@ -522,7 +534,7 @@ save_recording_immediately(Directory, Rec, Matching_config) ->
     "\n"
     " - `directory`: The directory where recording files will be written\n"
     " - `recordings`: List of recordings to save\n"
-    " - `matching_config`: The matching configuration used to generate filenames\n"
+    " - `key_fn`: Match key function used to compute each recording's key string\n"
     "\n"
     " ## Returns\n"
     "\n"
@@ -536,9 +548,9 @@ save_recording_immediately(Directory, Rec, Matching_config) ->
     "   create_test_recording(),\n"
     "   create_another_recording(),\n"
     " ]\n"
-    " let config = matching.match_url_only()\n"
+    " let key_fn = matching.request_key(method: True, url: True, headers: False, body: False)\n"
     "\n"
-    " case storage.save_recordings(\"mocks/api\", recordings, config) {\n"
+    " case storage.save_recordings(\"mocks/api\", recordings, key_fn) {\n"
     "   Ok(_) -> io.println(\"Saved recordings successfully\")\n"
     "   Error(reason) -> io.println_error(\"Failed to save: \" <> reason)\n"
     " }\n"
@@ -553,9 +565,9 @@ save_recording_immediately(Directory, Rec, Matching_config) ->
 -spec save_recordings(
     binary(),
     list(dream_http_client@recording:recording()),
-    dream_http_client@matching:matching_config()
+    fun((dream_http_client@recording:recorded_request()) -> binary())
 ) -> {ok, nil} | {error, binary()}.
-save_recordings(Directory, Recordings, Matching_config) ->
+save_recordings(Directory, Recordings, Key_fn) ->
     _pipe = case simplifile:create_directory_all(Directory) of
         {ok, nil} ->
             {ok, nil};
@@ -573,6 +585,7 @@ save_recordings(Directory, Recordings, Matching_config) ->
             gleam@list:try_each(
                 _pipe@1,
                 fun(Rec) ->
-                    save_recording_immediately(Directory, Rec, Matching_config)
+                    Key = Key_fn(erlang:element(2, Rec)),
+                    save_recording_immediately(Directory, Rec, Key)
                 end
             ) end).

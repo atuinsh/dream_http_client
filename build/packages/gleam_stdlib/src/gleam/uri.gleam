@@ -11,9 +11,8 @@ import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
-import gleam/string_tree.{type StringTree}
 
-/// Type representing holding the parsed components of an URI.
+/// Type representing the parsed components of a URI.
 /// All components of a URI are optional, except the path.
 ///
 pub type Uri {
@@ -33,16 +32,16 @@ pub type Uri {
 /// ## Examples
 ///
 /// ```gleam
-/// let uri = Uri(..empty, scheme: Some("https"), host: Some("example.com"))
-/// // -> Uri(
-/// //   scheme: Some("https"),
-/// //   userinfo: None,
-/// //   host: Some("example.com"),
-/// //   port: None,
-/// //   path: "",
-/// //   query: None,
-/// //   fragment: None,
-/// // )
+/// assert Uri(..empty, scheme: Some("https"), host: Some("example.com"))
+///   == Uri(
+///     scheme: Some("https"),
+///     userinfo: None,
+///     host: Some("example.com"),
+///     port: None,
+///     path: "",
+///     query: None,
+///     fragment: None,
+///   )
 /// ```
 ///
 pub const empty = Uri(
@@ -55,7 +54,7 @@ pub const empty = Uri(
   fragment: None,
 )
 
-/// Parses a compliant URI string into the `Uri` Type.
+/// Parses a compliant URI string into the `Uri` type.
 /// If the string is not a valid URI string then an error is returned.
 ///
 /// The opposite operation is `uri.to_string`.
@@ -63,18 +62,16 @@ pub const empty = Uri(
 /// ## Examples
 ///
 /// ```gleam
-/// parse("https://example.com:1234/a/b?query=true#fragment")
-/// // -> Ok(
-/// //   Uri(
-/// //     scheme: Some("https"),
-/// //     userinfo: None,
-/// //     host: Some("example.com"),
-/// //     port: Some(1234),
-/// //     path: "/a/b",
-/// //     query: Some("query=true"),
-/// //     fragment: Some("fragment")
-/// //   )
-/// // )
+/// assert uri.parse("https://example.com:1234/a/b?query=true#fragment")
+///   == Ok(Uri(
+///     scheme: Some("https"),
+///     userinfo: None,
+///     host: Some("example.com"),
+///     port: Some(1234),
+///     path: "/a/b",
+///     query: Some("query=true"),
+///     fragment: Some("fragment"),
+///   ))
 /// ```
 ///
 @external(erlang, "gleam_stdlib", "uri_parse")
@@ -104,7 +101,7 @@ fn parse_scheme_loop(
       parse_authority_with_slashes(uri_string, pieces)
     }
 
-    // `?` is not allowed to appear in a schemem, in an authority, or in a path;
+    // `?` is not allowed to appear in a scheme, in an authority, or in a path;
     // so if we see it we know it marks the beginning of the query part.
     "?" <> rest if size == 0 -> parse_query_with_question_mark(rest, pieces)
     "?" <> rest -> {
@@ -520,7 +517,7 @@ fn pop_codeunit(str: String) -> #(Int, String)
 @external(javascript, "../gleam_stdlib.mjs", "string_codeunit_slice")
 fn codeunit_slice(str: String, at_index from: Int, length length: Int) -> String
 
-/// Parses an urlencoded query string into a list of key value pairs.
+/// Parses an URL-encoded query string into a list of key value pairs.
 /// Returns an error for invalid encoding.
 ///
 /// The opposite operation is `uri.query_to_string`.
@@ -528,8 +525,7 @@ fn codeunit_slice(str: String, at_index from: Int, length length: Int) -> String
 /// ## Examples
 ///
 /// ```gleam
-/// parse_query("a=1&b=2")
-/// // -> Ok([#("a", "1"), #("b", "2")])
+/// assert uri.parse_query("a=1&b=2") == Ok([#("a", "1"), #("b", "2")])
 /// ```
 ///
 @external(erlang, "gleam_stdlib", "parse_query")
@@ -543,20 +539,22 @@ pub fn parse_query(query: String) -> Result(List(#(String, String)), Nil)
 /// ## Examples
 ///
 /// ```gleam
-/// query_to_string([#("a", "1"), #("b", "2")])
-/// // -> "a=1&b=2"
+/// assert uri.query_to_string([#("a", "1"), #("b", "2")]) == "a=1&b=2"
 /// ```
 ///
 pub fn query_to_string(query: List(#(String, String))) -> String {
   query
   |> list.map(query_pair)
-  |> list.intersperse(string_tree.from_string("&"))
-  |> string_tree.concat
-  |> string_tree.to_string
+  |> string.join("&")
 }
 
-fn query_pair(pair: #(String, String)) -> StringTree {
-  string_tree.from_strings([percent_encode(pair.0), "=", percent_encode(pair.1)])
+fn query_pair(pair: #(String, String)) -> String {
+  percent_encode_query(pair.0) <> "=" <> percent_encode_query(pair.1)
+}
+
+fn percent_encode_query(part: String) -> String {
+  percent_encode(part)
+  |> string.replace(each: "+", with: "%2B")
 }
 
 /// Encodes a string into a percent encoded representation.
@@ -564,8 +562,7 @@ fn query_pair(pair: #(String, String)) -> StringTree {
 /// ## Examples
 ///
 /// ```gleam
-/// percent_encode("100% great")
-/// // -> "100%25%20great"
+/// assert uri.percent_encode("100% great") == "100%25%20great"
 /// ```
 ///
 @external(erlang, "gleam_stdlib", "percent_encode")
@@ -577,15 +574,14 @@ pub fn percent_encode(value: String) -> String
 /// ## Examples
 ///
 /// ```gleam
-/// percent_decode("100%25%20great+fun")
-/// // -> Ok("100% great+fun")
+/// assert uri.percent_decode("100%25%20great+fun") == Ok("100% great+fun")
 /// ```
 ///
 @external(erlang, "gleam_stdlib", "percent_decode")
 @external(javascript, "../gleam_stdlib.mjs", "percent_decode")
 pub fn percent_decode(value: String) -> Result(String, Nil)
 
-/// Splits the path section of a URI into it's constituent segments.
+/// Splits the path section of a URI into its constituent segments.
 ///
 /// Removes empty segments and resolves dot-segments as specified in
 /// [section 5.2](https://www.ietf.org/rfc/rfc3986.html#section-5.2) of the RFC.
@@ -593,8 +589,7 @@ pub fn percent_decode(value: String) -> Result(String, Nil)
 /// ## Examples
 ///
 /// ```gleam
-/// path_segments("/users/1")
-/// // -> ["users" ,"1"]
+/// assert uri.path_segments("/users/1") == ["users", "1"]
 /// ```
 ///
 pub fn path_segments(path: String) -> List(String) {
@@ -632,36 +627,54 @@ fn remove_dot_segments_loop(
 ///
 /// ```gleam
 /// let uri = Uri(..empty, scheme: Some("https"), host: Some("example.com"))
-/// to_string(uri)
-/// // -> "https://example.com"
+/// assert uri.to_string(uri) == "https://example.com"
 /// ```
 ///
 pub fn to_string(uri: Uri) -> String {
-  let parts = case uri.fragment {
-    Some(fragment) -> ["#", fragment]
-    None -> []
+  // scheme:[//[userinfo@]host[:port]]path[?query][#fragment]
+
+  let out = case uri.scheme {
+    Some(scheme) -> scheme <> ":"
+    None -> ""
   }
-  let parts = case uri.query {
-    Some(query) -> ["?", query, ..parts]
-    None -> parts
+
+  let out = case uri.host {
+    // Host is mandatory if this is present, so we ignore any port and userinfo
+    // if it is not as they would be invalid.
+    None -> {
+      out <> uri.path
+    }
+
+    Some(host) -> {
+      let out = out <> "//"
+      let out = case uri.userinfo {
+        Some(userinfo) -> out <> userinfo <> "@"
+        None -> out
+      }
+      let out = out <> host
+      let out = case uri.port {
+        Some(port) -> out <> ":" <> int.to_string(port)
+        None -> out
+      }
+      let out = case uri.path {
+        "" -> out
+        "/" <> _ -> out <> uri.path
+        _ -> out <> "/" <> uri.path
+      }
+      out
+    }
   }
-  let parts = [uri.path, ..parts]
-  let parts = case uri.host, string.starts_with(uri.path, "/") {
-    Some(host), False if host != "" -> ["/", ..parts]
-    _, _ -> parts
+
+  let out = case uri.query {
+    Some(query) -> out <> "?" <> query
+    None -> out
   }
-  let parts = case uri.host, uri.port {
-    Some(_), Some(port) -> [":", int.to_string(port), ..parts]
-    _, _ -> parts
+  let out = case uri.fragment {
+    Some(fragment) -> out <> "#" <> fragment
+    None -> out
   }
-  let parts = case uri.scheme, uri.userinfo, uri.host {
-    Some(s), Some(u), Some(h) -> [s, "://", u, "@", h, ..parts]
-    Some(s), None, Some(h) -> [s, "://", h, ..parts]
-    Some(s), Some(_), None | Some(s), None, None -> [s, ":", ..parts]
-    None, None, Some(h) -> ["//", h, ..parts]
-    _, _, _ -> parts
-  }
-  string.concat(parts)
+
+  out
 }
 
 /// Fetches the origin of a URI.
@@ -675,22 +688,19 @@ pub fn to_string(uri: Uri) -> String {
 /// ## Examples
 ///
 /// ```gleam
-/// let assert Ok(uri) = parse("https://example.com/path?foo#bar")
-/// origin(uri)
-/// // -> Ok("https://example.com")
+/// let assert Ok(uri) = uri.parse("https://example.com/path?foo#bar")
+/// assert uri.origin(uri) == Ok("https://example.com")
 /// ```
 ///
 pub fn origin(uri: Uri) -> Result(String, Nil) {
   let Uri(scheme: scheme, host: host, port: port, ..) = uri
   case host, scheme {
-    Some(h), Some("https") if port == Some(443) ->
-      Ok(string.concat(["https://", h]))
-    Some(h), Some("http") if port == Some(80) ->
-      Ok(string.concat(["http://", h]))
+    Some(h), Some("https") if port == Some(443) -> Ok("https://" <> h)
+    Some(h), Some("http") if port == Some(80) -> Ok("http://" <> h)
     Some(h), Some(s) if s == "http" || s == "https" -> {
       case port {
-        Some(p) -> Ok(string.concat([s, "://", h, ":", int.to_string(p)]))
-        None -> Ok(string.concat([s, "://", h]))
+        Some(p) -> Ok(s <> "://" <> h <> ":" <> int.to_string(p))
+        None -> Ok(s <> "://" <> h)
       }
     }
     _, _ -> Error(Nil)
@@ -700,7 +710,7 @@ pub fn origin(uri: Uri) -> Result(String, Nil) {
 /// Resolves a URI with respect to the given base URI.
 ///
 /// The base URI must be an absolute URI or this function will return an error.
-/// The algorithm for merging uris is described in
+/// The algorithm for merging URIs is described in
 /// [RFC 3986](https://tools.ietf.org/html/rfc3986#section-5.2).
 ///
 pub fn merge(base: Uri, relative: Uri) -> Result(Uri, Nil) {

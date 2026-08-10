@@ -1,1 +1,3 @@
--record(unknown, {inner :: binary()}).
+-record(unknown, {
+    inner :: binary()
+}).

@@ -1,7 +1,7 @@
 //// A type with two possible values, `True` and `False`. Used to indicate whether
 //// things are... true or false!
 ////
-//// Often is it clearer and offers more type safety to define a custom type
+//// It is often clearer and offers more type safety to define a custom type
 //// than to use `Bool`. For example, rather than having a `is_teacher: Bool`
 //// field consider having a `role: SchoolRole` field where `SchoolRole` is a custom
 //// type that can be either `Student` or `Teacher`.
@@ -14,18 +14,19 @@
 /// ## Examples
 ///
 /// ```gleam
-/// and(True, True)
-/// // -> True
+/// assert bool.and(True, True)
 /// ```
 ///
 /// ```gleam
-/// and(False, True)
-/// // -> False
+/// assert !bool.and(False, True)
 /// ```
 ///
 /// ```gleam
-/// False |> and(True)
-/// // -> False
+/// assert !bool.and(False, True)
+/// ```
+///
+/// ```gleam
+/// assert !bool.and(False, False)
 /// ```
 ///
 pub fn and(a: Bool, b: Bool) -> Bool {
@@ -40,18 +41,19 @@ pub fn and(a: Bool, b: Bool) -> Bool {
 /// ## Examples
 ///
 /// ```gleam
-/// or(True, True)
-/// // -> True
+/// assert bool.or(True, True)
 /// ```
 ///
 /// ```gleam
-/// or(False, True)
-/// // -> True
+/// assert bool.or(False, True)
 /// ```
 ///
 /// ```gleam
-/// False |> or(True)
-/// // -> True
+/// assert bool.or(True, False)
+/// ```
+///
+/// ```gleam
+/// assert !bool.or(False, False)
 /// ```
 ///
 pub fn or(a: Bool, b: Bool) -> Bool {
@@ -65,13 +67,11 @@ pub fn or(a: Bool, b: Bool) -> Bool {
 /// ## Examples
 ///
 /// ```gleam
-/// negate(True)
-/// // -> False
+/// assert !bool.negate(True)
 /// ```
 ///
 /// ```gleam
-/// negate(False)
-/// // -> True
+/// assert bool.negate(False)
 /// ```
 ///
 pub fn negate(bool: Bool) -> Bool {
@@ -83,23 +83,19 @@ pub fn negate(bool: Bool) -> Bool {
 /// ## Examples
 ///
 /// ```gleam
-/// nor(False, False)
-/// // -> True
+/// assert bool.nor(False, False)
 /// ```
 ///
 /// ```gleam
-/// nor(False, True)
-/// // -> False
+/// assert !bool.nor(False, True)
 /// ```
 ///
 /// ```gleam
-/// nor(True, False)
-/// // -> False
+/// assert !bool.nor(True, False)
 /// ```
 ///
 /// ```gleam
-/// nor(True, True)
-/// // -> False
+/// assert !bool.nor(True, True)
 /// ```
 ///
 pub fn nor(a: Bool, b: Bool) -> Bool {
@@ -111,23 +107,19 @@ pub fn nor(a: Bool, b: Bool) -> Bool {
 /// ## Examples
 ///
 /// ```gleam
-/// nand(False, False)
-/// // -> True
+/// assert bool.nand(False, False)
 /// ```
 ///
 /// ```gleam
-/// nand(False, True)
-/// // -> True
+/// assert bool.nand(False, True)
 /// ```
 ///
 /// ```gleam
-/// nand(True, False)
-/// // -> True
+/// assert bool.nand(True, False)
 /// ```
 ///
 /// ```gleam
-/// nand(True, True)
-/// // -> False
+/// assert !bool.nand(True, True)
 /// ```
 ///
 pub fn nand(a: Bool, b: Bool) -> Bool {
@@ -139,23 +131,19 @@ pub fn nand(a: Bool, b: Bool) -> Bool {
 /// ## Examples
 ///
 /// ```gleam
-/// exclusive_or(False, False)
-/// // -> False
+/// assert !bool.exclusive_or(False, False)
 /// ```
 ///
 /// ```gleam
-/// exclusive_or(False, True)
-/// // -> True
+/// assert bool.exclusive_or(False, True)
 /// ```
 ///
 /// ```gleam
-/// exclusive_or(True, False)
-/// // -> True
+/// assert bool.exclusive_or(True, False)
 /// ```
 ///
 /// ```gleam
-/// exclusive_or(True, True)
-/// // -> False
+/// assert !bool.exclusive_or(True, True)
 /// ```
 ///
 pub fn exclusive_or(a: Bool, b: Bool) -> Bool {
@@ -167,23 +155,19 @@ pub fn exclusive_or(a: Bool, b: Bool) -> Bool {
 /// ## Examples
 ///
 /// ```gleam
-/// exclusive_nor(False, False)
-/// // -> True
+/// assert bool.exclusive_nor(False, False)
 /// ```
 ///
 /// ```gleam
-/// exclusive_nor(False, True)
-/// // -> False
+/// assert !bool.exclusive_nor(False, True)
 /// ```
 ///
 /// ```gleam
-/// exclusive_nor(True, False)
-/// // -> False
+/// assert !bool.exclusive_nor(True, False)
 /// ```
 ///
 /// ```gleam
-/// exclusive_nor(True, True)
-/// // -> True
+/// assert bool.exclusive_nor(True, True)
 /// ```
 ///
 pub fn exclusive_nor(a: Bool, b: Bool) -> Bool {
@@ -195,13 +179,11 @@ pub fn exclusive_nor(a: Bool, b: Bool) -> Bool {
 /// ## Examples
 ///
 /// ```gleam
-/// to_string(True)
-/// // -> "True"
+/// assert bool.to_string(True) == "True"
 /// ```
 ///
 /// ```gleam
-/// to_string(False)
-/// // -> "False"
+/// assert bool.to_string(False) == "False"
 /// ```
 ///
 pub fn to_string(bool: Bool) -> String {
@@ -227,7 +209,8 @@ pub fn to_string(bool: Bool) -> String {
 /// In Gleam with a `use` expression:
 ///
 /// ```gleam
-/// use <- guard(when: predicate, return: value)
+/// use <- bool.guard(when: predicate, return: value)
+/// todo
 /// // ...
 /// ```
 ///
@@ -237,7 +220,8 @@ pub fn to_string(bool: Bool) -> String {
 ///
 /// ```gleam
 /// let x = {
-///   use <- guard(when: predicate, return: value)
+///   use <- bool.guard(when: predicate, return: value)
+///   todo
 ///   // ...
 /// }
 /// ```
@@ -251,14 +235,14 @@ pub fn to_string(bool: Bool) -> String {
 ///
 /// ```gleam
 /// let name = ""
-/// use <- guard(when: name == "", return: "Welcome!")
+/// use <- bool.guard(when: name == "", return: "Welcome!")
 /// "Hello, " <> name
 /// // -> "Welcome!"
 /// ```
 ///
 /// ```gleam
 /// let name = "Kamaka"
-/// use <- guard(when: name == "", return: "Welcome!")
+/// use <- bool.guard(when: name == "", return: "Welcome!")
 /// "Hello, " <> name
 /// // -> "Hello, Kamaka"
 /// ```
@@ -287,7 +271,7 @@ pub fn guard(
 /// ```gleam
 /// let name = "Kamaka"
 /// let inquiry = fn() { "How may we address you?" }
-/// use <- lazy_guard(when: name == "", return: inquiry)
+/// use <- bool.lazy_guard(when: name == "", return: inquiry)
 /// "Hello, " <> name
 /// // -> "Hello, Kamaka"
 /// ```
@@ -297,7 +281,7 @@ pub fn guard(
 ///
 /// let name = ""
 /// let greeting = fn() { "Hello, " <> name }
-/// use <- lazy_guard(when: name == "", otherwise: greeting)
+/// use <- bool.lazy_guard(when: name == "", otherwise: greeting)
 /// let number = int.random(99)
 /// let name = "User " <> int.to_string(number)
 /// "Welcome, " <> name

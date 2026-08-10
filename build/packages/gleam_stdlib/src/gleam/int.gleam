@@ -18,13 +18,11 @@ import gleam/order.{type Order}
 /// ## Examples
 ///
 /// ```gleam
-/// absolute_value(-12)
-/// // -> 12
+/// assert int.absolute_value(-12) == 12
 /// ```
 ///
 /// ```gleam
-/// absolute_value(10)
-/// // -> 10
+/// assert int.absolute_value(10) == 10
 /// ```
 ///
 pub fn absolute_value(x: Int) -> Int {
@@ -34,34 +32,29 @@ pub fn absolute_value(x: Int) -> Int {
   }
 }
 
-/// Returns the results of the base being raised to the power of the
+/// Returns the result of the base being raised to the power of the
 /// exponent, as a `Float`.
 ///
 /// ## Examples
 ///
 /// ```gleam
-/// power(2, -1.0)
-/// // -> Ok(0.5)
+/// assert int.power(2, -1.0) == Ok(0.5)
 /// ```
 ///
 /// ```gleam
-/// power(2, 2.0)
-/// // -> Ok(4.0)
+/// assert int.power(2, 2.0) == Ok(4.0)
 /// ```
 ///
 /// ```gleam
-/// power(8, 1.5)
-/// // -> Ok(22.627416997969522)
+/// assert int.power(8, 1.5) == Ok(22.627416997969522)
 /// ```
 ///
 /// ```gleam
-/// 4 |> power(of: 2.0)
-/// // -> Ok(16.0)
+/// assert 4 |> int.power(of: 2.0) == Ok(16.0)
 /// ```
 ///
 /// ```gleam
-/// power(-1, 0.5)
-/// // -> Error(Nil)
+/// assert int.power(-1, 0.5) == Error(Nil)
 /// ```
 ///
 pub fn power(base: Int, of exponent: Float) -> Result(Float, Nil) {
@@ -75,13 +68,11 @@ pub fn power(base: Int, of exponent: Float) -> Result(Float, Nil) {
 /// ## Examples
 ///
 /// ```gleam
-/// square_root(4)
-/// // -> Ok(2.0)
+/// assert int.square_root(4) == Ok(2.0)
 /// ```
 ///
 /// ```gleam
-/// square_root(-16)
-/// // -> Error(Nil)
+/// assert int.square_root(-16) == Error(Nil)
 /// ```
 ///
 pub fn square_root(x: Int) -> Result(Float, Nil) {
@@ -95,47 +86,43 @@ pub fn square_root(x: Int) -> Result(Float, Nil) {
 /// ## Examples
 ///
 /// ```gleam
-/// parse("2")
-/// // -> Ok(2)
+/// assert int.parse("2") == Ok(2)
 /// ```
 ///
 /// ```gleam
-/// parse("ABC")
-/// // -> Error(Nil)
+/// assert int.parse("ABC") == Error(Nil)
 /// ```
 ///
 @external(erlang, "gleam_stdlib", "parse_int")
 @external(javascript, "../gleam_stdlib.mjs", "parse_int")
 pub fn parse(string: String) -> Result(Int, Nil)
 
-/// Parses a given string as an int in a given base if possible.
-/// Supports only bases 2 to 36, for values outside of which this function returns an `Error(Nil)`.
+/// Parses a given string as an int in a given base, returning an error if the
+/// input was not a valid number for the given base.
+///
+/// Supports only bases 2 to 36, for values outside of which this function
+/// returns an `Error(Nil)`.
 ///
 /// ## Examples
 ///
 /// ```gleam
-/// base_parse("10", 2)
-/// // -> Ok(2)
+/// assert int.base_parse("10", 2) == Ok(2)
 /// ```
 ///
 /// ```gleam
-/// base_parse("30", 16)
-/// // -> Ok(48)
+/// assert int.base_parse("30", 16) == Ok(48)
 /// ```
 ///
 /// ```gleam
-/// base_parse("1C", 36)
-/// // -> Ok(48)
+/// assert int.base_parse("1C", 36) == Ok(48)
 /// ```
 ///
 /// ```gleam
-/// base_parse("48", 1)
-/// // -> Error(Nil)
+/// assert int.base_parse("48", 1) == Error(Nil)
 /// ```
 ///
 /// ```gleam
-/// base_parse("48", 37)
-/// // -> Error(Nil)
+/// assert int.base_parse("48", 37) == Error(Nil)
 /// ```
 ///
 pub fn base_parse(string: String, base: Int) -> Result(Int, Nil) {
@@ -154,8 +141,7 @@ fn do_base_parse(a: String, b: Int) -> Result(Int, Nil)
 /// ## Examples
 ///
 /// ```gleam
-/// to_string(2)
-/// // -> "2"
+/// assert int.to_string(2) == "2"
 /// ```
 ///
 @external(erlang, "erlang", "integer_to_binary")
@@ -169,28 +155,23 @@ pub fn to_string(x: Int) -> String
 /// ## Examples
 ///
 /// ```gleam
-/// to_base_string(2, 2)
-/// // -> Ok("10")
+/// assert int.to_base_string(2, 2) == Ok("10")
 /// ```
 ///
 /// ```gleam
-/// to_base_string(48, 16)
-/// // -> Ok("30")
+/// assert int.to_base_string(48, 16) == Ok("30")
 /// ```
 ///
 /// ```gleam
-/// to_base_string(48, 36)
-/// // -> Ok("1C")
+/// assert int.to_base_string(48, 36) == Ok("1C")
 /// ```
 ///
 /// ```gleam
-/// to_base_string(48, 1)
-/// // -> Error(Nil)
+/// assert int.to_base_string(48, 1) == Error(Nil)
 /// ```
 ///
 /// ```gleam
-/// to_base_string(48, 37)
-/// // -> Error(Nil)
+/// assert int.to_base_string(48, 37) == Error(Nil)
 /// ```
 ///
 pub fn to_base_string(x: Int, base: Int) -> Result(String, Nil) {
@@ -209,8 +190,7 @@ fn do_to_base_string(a: Int, b: Int) -> String
 /// ## Examples
 ///
 /// ```gleam
-/// to_base2(2)
-/// // -> "10"
+/// assert int.to_base2(2) == "10"
 /// ```
 ///
 pub fn to_base2(x: Int) -> String {
@@ -222,8 +202,7 @@ pub fn to_base2(x: Int) -> String {
 /// ## Examples
 ///
 /// ```gleam
-/// to_base8(15)
-/// // -> "17"
+/// assert int.to_base8(15) == "17"
 /// ```
 ///
 pub fn to_base8(x: Int) -> String {
@@ -235,8 +214,7 @@ pub fn to_base8(x: Int) -> String {
 /// ## Examples
 ///
 /// ```gleam
-/// to_base16(48)
-/// // -> "30"
+/// assert int.to_base16(48) == "30"
 /// ```
 ///
 pub fn to_base16(x: Int) -> String {
@@ -248,8 +226,7 @@ pub fn to_base16(x: Int) -> String {
 /// ## Examples
 ///
 /// ```gleam
-/// to_base36(48)
-/// // -> "1C"
+/// assert int.to_base36(48) == "1C"
 /// ```
 ///
 pub fn to_base36(x: Int) -> String {
@@ -261,18 +238,15 @@ pub fn to_base36(x: Int) -> String {
 /// ## Examples
 ///
 /// ```gleam
-/// to_float(5)
-/// // -> 5.0
+/// assert int.to_float(5) == 5.0
 /// ```
 ///
 /// ```gleam
-/// to_float(0)
-/// // -> 0.0
+/// assert int.to_float(0) == 0.0
 /// ```
 ///
 /// ```gleam
-/// to_float(-3)
-/// // -> -3.0
+/// assert int.to_float(-3) == -3.0
 /// ```
 ///
 @external(erlang, "erlang", "float")
@@ -281,16 +255,18 @@ pub fn to_float(x: Int) -> Float
 
 /// Restricts an int between two bounds.
 ///
+/// Note: If the `min` argument is larger than the `max` argument then they
+/// will be swapped, so the minimum bound is always lower than the maximum
+/// bound.
+///
 /// ## Examples
 ///
 /// ```gleam
-/// clamp(40, min: 50, max: 60)
-/// // -> 50
+/// assert int.clamp(40, min: 50, max: 60) == 50
 /// ```
 ///
 /// ```gleam
-/// clamp(40, min: 50, max: 30)
-/// // -> 40
+/// assert int.clamp(40, min: 50, max: 30) == 40
 /// ```
 ///
 pub fn clamp(x: Int, min min_bound: Int, max max_bound: Int) -> Int {
@@ -305,18 +281,15 @@ pub fn clamp(x: Int, min min_bound: Int, max max_bound: Int) -> Int {
 /// ## Examples
 ///
 /// ```gleam
-/// compare(2, 3)
-/// // -> Lt
+/// assert int.compare(2, 3) == Lt
 /// ```
 ///
 /// ```gleam
-/// compare(4, 3)
-/// // -> Gt
+/// assert int.compare(4, 3) == Gt
 /// ```
 ///
 /// ```gleam
-/// compare(3, 3)
-/// // -> Eq
+/// assert int.compare(3, 3) == Eq
 /// ```
 ///
 pub fn compare(a: Int, with b: Int) -> Order {
@@ -335,8 +308,7 @@ pub fn compare(a: Int, with b: Int) -> Order {
 /// ## Examples
 ///
 /// ```gleam
-/// min(2, 3)
-/// // -> 2
+/// assert int.min(2, 3) == 2
 /// ```
 ///
 pub fn min(a: Int, b: Int) -> Int {
@@ -351,8 +323,7 @@ pub fn min(a: Int, b: Int) -> Int {
 /// ## Examples
 ///
 /// ```gleam
-/// max(2, 3)
-/// // -> 3
+/// assert int.max(2, 3) == 3
 /// ```
 ///
 pub fn max(a: Int, b: Int) -> Int {
@@ -367,13 +338,11 @@ pub fn max(a: Int, b: Int) -> Int {
 /// ## Examples
 ///
 /// ```gleam
-/// is_even(2)
-/// // -> True
+/// assert int.is_even(2)
 /// ```
 ///
 /// ```gleam
-/// is_even(3)
-/// // -> False
+/// assert !int.is_even(3)
 /// ```
 ///
 pub fn is_even(x: Int) -> Bool {
@@ -385,13 +354,11 @@ pub fn is_even(x: Int) -> Bool {
 /// ## Examples
 ///
 /// ```gleam
-/// is_odd(3)
-/// // -> True
+/// assert int.is_odd(3)
 /// ```
 ///
 /// ```gleam
-/// is_odd(2)
-/// // -> False
+/// assert !int.is_odd(2)
 /// ```
 ///
 pub fn is_odd(x: Int) -> Bool {
@@ -403,8 +370,7 @@ pub fn is_odd(x: Int) -> Bool {
 /// ## Examples
 ///
 /// ```gleam
-/// negate(1)
-/// // -> -1
+/// assert int.negate(1) == -1
 /// ```
 ///
 pub fn negate(x: Int) -> Int {
@@ -416,8 +382,7 @@ pub fn negate(x: Int) -> Int {
 /// ## Example
 ///
 /// ```gleam
-/// sum([1, 2, 3])
-/// // -> 6
+/// assert int.sum([1, 2, 3]) == 6
 /// ```
 ///
 pub fn sum(numbers: List(Int)) -> Int {
@@ -436,8 +401,7 @@ fn sum_loop(numbers: List(Int), initial: Int) -> Int {
 /// ## Example
 ///
 /// ```gleam
-/// product([2, 3, 4])
-/// // -> 24
+/// assert int.product([2, 3, 4]) == 24
 /// ```
 ///
 pub fn product(numbers: List(Int)) -> Int {
@@ -451,37 +415,6 @@ fn product_loop(numbers: List(Int), initial: Int) -> Int {
   }
 }
 
-@deprecated("Vendor this function into your codebase")
-pub fn digits(x: Int, base: Int) -> Result(List(Int), Nil) {
-  case base < 2 {
-    True -> Error(Nil)
-    False -> Ok(digits_loop(x, base, []))
-  }
-}
-
-fn digits_loop(x: Int, base: Int, acc: List(Int)) -> List(Int) {
-  case absolute_value(x) < base {
-    True -> [x, ..acc]
-    False -> digits_loop(x / base, base, [x % base, ..acc])
-  }
-}
-
-@deprecated("Vendor this function into your codebase")
-pub fn undigits(numbers: List(Int), base: Int) -> Result(Int, Nil) {
-  case base < 2 {
-    True -> Error(Nil)
-    False -> undigits_loop(numbers, base, 0)
-  }
-}
-
-fn undigits_loop(numbers: List(Int), base: Int, acc: Int) -> Result(Int, Nil) {
-  case numbers {
-    [] -> Ok(acc)
-    [digit, ..] if digit >= base -> Error(Nil)
-    [digit, ..rest] -> undigits_loop(rest, base, acc * base + digit)
-  }
-}
-
 /// Generates a random int between zero and the given maximum.
 ///
 /// The lower number is inclusive, the upper number is exclusive.
@@ -489,17 +422,17 @@ fn undigits_loop(numbers: List(Int), base: Int, acc: Int) -> Result(Int, Nil) {
 /// ## Examples
 ///
 /// ```gleam
-/// random(10)
+/// int.random(10)
 /// // -> 4
 /// ```
 ///
 /// ```gleam
-/// random(1)
+/// int.random(1)
 /// // -> 0
 /// ```
 ///
 /// ```gleam
-/// random(-1)
+/// int.random(-1)
 /// // -> -1
 /// ```
 ///
@@ -517,23 +450,19 @@ pub fn random(max: Int) -> Int {
 /// ## Examples
 ///
 /// ```gleam
-/// divide(0, 1)
-/// // -> Ok(0)
+/// assert int.divide(0, 1) == Ok(0)
 /// ```
 ///
 /// ```gleam
-/// divide(1, 0)
-/// // -> Error(Nil)
+/// assert int.divide(1, 0) == Error(Nil)
 /// ```
 ///
 /// ```gleam
-/// divide(5, 2)
-/// // -> Ok(2)
+/// assert int.divide(5, 2) == Ok(2)
 /// ```
 ///
 /// ```gleam
-/// divide(-99, 2)
-/// // -> Ok(-49)
+/// assert int.divide(-99, 2) == Ok(-49)
 /// ```
 ///
 pub fn divide(dividend: Int, by divisor: Int) -> Result(Int, Nil) {
@@ -548,44 +477,37 @@ pub fn divide(dividend: Int, by divisor: Int) -> Result(Int, Nil) {
 /// Returns division of the inputs as a `Result`: If the given divisor equals
 /// `0`, this function returns an `Error`.
 ///
-/// Most the time you will want to use the `%` operator instead of this
+/// Most of the time you will want to use the `%` operator instead of this
 /// function.
 ///
 /// ## Examples
 ///
 /// ```gleam
-/// remainder(3, 2)
-/// // -> Ok(1)
+/// assert int.remainder(3, 2) == Ok(1)
 /// ```
 ///
 /// ```gleam
-/// remainder(1, 0)
-/// // -> Error(Nil)
+/// assert int.remainder(1, 0) == Error(Nil)
 /// ```
 ///
 /// ```gleam
-/// remainder(10, -1)
-/// // -> Ok(0)
+/// assert int.remainder(10, -1) == Ok(0)
 /// ```
 ///
 /// ```gleam
-/// remainder(13, by: 3)
-/// // -> Ok(1)
+/// assert int.remainder(13, by: 3) == Ok(1)
 /// ```
 ///
 /// ```gleam
-/// remainder(-13, by: 3)
-/// // -> Ok(-1)
+/// assert int.remainder(-13, by: 3) == Ok(-1)
 /// ```
 ///
 /// ```gleam
-/// remainder(13, by: -3)
-/// // -> Ok(1)
+/// assert int.remainder(13, by: -3) == Ok(1)
 /// ```
 ///
 /// ```gleam
-/// remainder(-13, by: -3)
-/// // -> Ok(-1)
+/// assert int.remainder(-13, by: -3) == Ok(-1)
 /// ```
 ///
 pub fn remainder(dividend: Int, by divisor: Int) -> Result(Int, Nil) {
@@ -606,33 +528,27 @@ pub fn remainder(dividend: Int, by divisor: Int) -> Result(Int, Nil) {
 /// ## Examples
 ///
 /// ```gleam
-/// modulo(3, 2)
-/// // -> Ok(1)
+/// assert int.modulo(3, 2) == Ok(1)
 /// ```
 ///
 /// ```gleam
-/// modulo(1, 0)
-/// // -> Error(Nil)
+/// assert int.modulo(1, 0) == Error(Nil)
 /// ```
 ///
 /// ```gleam
-/// modulo(10, -1)
-/// // -> Ok(0)
+/// assert int.modulo(10, -1) == Ok(0)
 /// ```
 ///
 /// ```gleam
-/// modulo(13, by: 3)
-/// // -> Ok(1)
+/// assert int.modulo(13, by: 3) == Ok(1)
 /// ```
 ///
 /// ```gleam
-/// modulo(-13, by: 3)
-/// // -> Ok(2)
+/// assert int.modulo(-13, by: 3) == Ok(2)
 /// ```
 ///
 /// ```gleam
-/// modulo(13, by: -3)
-/// // -> Ok(-2)
+/// assert int.modulo(13, by: -3) == Ok(-2)
 /// ```
 ///
 pub fn modulo(dividend: Int, by divisor: Int) -> Result(Int, Nil) {
@@ -660,23 +576,19 @@ pub fn modulo(dividend: Int, by divisor: Int) -> Result(Int, Nil) {
 /// ## Examples
 ///
 /// ```gleam
-/// floor_divide(1, 0)
-/// // -> Error(Nil)
+/// assert int.floor_divide(1, 0) == Error(Nil)
 /// ```
 ///
 /// ```gleam
-/// floor_divide(5, 2)
-/// // -> Ok(2)
+/// assert int.floor_divide(5, 2) == Ok(2)
 /// ```
 ///
 /// ```gleam
-/// floor_divide(6, -4)
-/// // -> Ok(-2)
+/// assert int.floor_divide(6, -4) == Ok(-2)
 /// ```
 ///
 /// ```gleam
-/// floor_divide(-99, 2)
-/// // -> Ok(-50)
+/// assert int.floor_divide(-99, 2) == Ok(-50)
 /// ```
 ///
 pub fn floor_divide(dividend: Int, by divisor: Int) -> Result(Int, Nil) {
@@ -698,19 +610,17 @@ pub fn floor_divide(dividend: Int, by divisor: Int) -> Result(Int, Nil) {
 /// ## Examples
 ///
 /// ```gleam
-/// add(1, 2)
-/// // -> 3
+/// assert int.add(1, 2) == 3
 /// ```
 ///
 /// ```gleam
 /// import gleam/list
-/// list.fold([1, 2, 3], 0, add)
-/// // -> 6
+///
+/// assert list.fold([1, 2, 3], 0, int.add) == 6
 /// ```
 ///
 /// ```gleam
-/// 3 |> add(2)
-/// // -> 5
+/// assert 3 |> int.add(2) == 5
 /// ```
 ///
 pub fn add(a: Int, b: Int) -> Int {
@@ -725,20 +635,17 @@ pub fn add(a: Int, b: Int) -> Int {
 /// ## Examples
 ///
 /// ```gleam
-/// multiply(2, 4)
-/// // -> 8
+/// assert int.multiply(2, 4) == 8
 /// ```
 ///
 /// ```gleam
 /// import gleam/list
 ///
-/// list.fold([2, 3, 4], 1, multiply)
-/// // -> 24
+/// assert list.fold([2, 3, 4], 1, int.multiply) == 24
 /// ```
 ///
 /// ```gleam
-/// 3 |> multiply(2)
-/// // -> 6
+/// assert 3 |> int.multiply(2) == 6
 /// ```
 ///
 pub fn multiply(a: Int, b: Int) -> Int {
@@ -753,25 +660,21 @@ pub fn multiply(a: Int, b: Int) -> Int {
 /// ## Examples
 ///
 /// ```gleam
-/// subtract(3, 1)
-/// // -> 2
+/// assert int.subtract(3, 1) == 2
 /// ```
 ///
 /// ```gleam
 /// import gleam/list
 ///
-/// list.fold([1, 2, 3], 10, subtract)
-/// // -> 4
+/// assert list.fold([1, 2, 3], 10, int.subtract) == 4
 /// ```
 ///
 /// ```gleam
-/// 3 |> subtract(2)
-/// // -> 1
+/// assert 3 |> int.subtract(2) == 1
 /// ```
 ///
 /// ```gleam
-/// 3 |> subtract(2, _)
-/// // -> -1
+/// assert 3 |> int.subtract(2, _) == -1
 /// ```
 ///
 pub fn subtract(a: Int, b: Int) -> Int {
@@ -780,9 +683,16 @@ pub fn subtract(a: Int, b: Int) -> Int {
 
 /// Calculates the bitwise AND of its arguments.
 ///
+/// Most the time you should use the bit array syntaxes instead of manipulating
+/// bits as ints with bitwise functions.
+///
+/// ## Target specific behaviour
+///
 /// The exact behaviour of this function depends on the target platform.
 /// On Erlang it is equivalent to bitwise operations on ints, on JavaScript it
-/// is equivalent to bitwise operations on big-ints.
+/// is equivalent to bitwise operations on big-ints. If you need to avoid the
+/// overhead of big-ints on JavaScript use bit arrays or another package that
+/// provides faster bitwise operations.
 ///
 @external(erlang, "erlang", "band")
 @external(javascript, "../gleam_stdlib.mjs", "bitwise_and")
@@ -790,9 +700,16 @@ pub fn bitwise_and(x: Int, y: Int) -> Int
 
 /// Calculates the bitwise NOT of its argument.
 ///
+/// Most the time you should use the bit array syntaxes instead of manipulating
+/// bits as ints with bitwise functions.
+///
+/// ## Target specific behaviour
+///
 /// The exact behaviour of this function depends on the target platform.
 /// On Erlang it is equivalent to bitwise operations on ints, on JavaScript it
-/// is equivalent to bitwise operations on big-ints.
+/// is equivalent to bitwise operations on big-ints. If you need to avoid the
+/// overhead of big-ints on JavaScript use bit arrays or another package that
+/// provides faster bitwise operations.
 ///
 @external(erlang, "erlang", "bnot")
 @external(javascript, "../gleam_stdlib.mjs", "bitwise_not")
@@ -800,9 +717,16 @@ pub fn bitwise_not(x: Int) -> Int
 
 /// Calculates the bitwise OR of its arguments.
 ///
+/// Most the time you should use the bit array syntaxes instead of manipulating
+/// bits as ints with bitwise functions.
+///
+/// ## Target specific behaviour
+///
 /// The exact behaviour of this function depends on the target platform.
 /// On Erlang it is equivalent to bitwise operations on ints, on JavaScript it
-/// is equivalent to bitwise operations on big-ints.
+/// is equivalent to bitwise operations on big-ints. If you need to avoid the
+/// overhead of big-ints on JavaScript use bit arrays or another package that
+/// provides faster bitwise operations.
 ///
 @external(erlang, "erlang", "bor")
 @external(javascript, "../gleam_stdlib.mjs", "bitwise_or")
@@ -810,9 +734,16 @@ pub fn bitwise_or(x: Int, y: Int) -> Int
 
 /// Calculates the bitwise XOR of its arguments.
 ///
+/// Most the time you should use the bit array syntaxes instead of manipulating
+/// bits as ints with bitwise functions.
+///
+/// ## Target specific behaviour
+///
 /// The exact behaviour of this function depends on the target platform.
 /// On Erlang it is equivalent to bitwise operations on ints, on JavaScript it
-/// is equivalent to bitwise operations on big-ints.
+/// is equivalent to bitwise operations on big-ints. If you need to avoid the
+/// overhead of big-ints on JavaScript use bit arrays or another package that
+/// provides faster bitwise operations.
 ///
 @external(erlang, "erlang", "bxor")
 @external(javascript, "../gleam_stdlib.mjs", "bitwise_exclusive_or")
@@ -820,9 +751,16 @@ pub fn bitwise_exclusive_or(x: Int, y: Int) -> Int
 
 /// Calculates the result of an arithmetic left bitshift.
 ///
+/// Most the time you should use the bit array syntaxes instead of manipulating
+/// bits as ints with bitwise functions.
+///
+/// ## Target specific behaviour
+///
 /// The exact behaviour of this function depends on the target platform.
 /// On Erlang it is equivalent to bitwise operations on ints, on JavaScript it
-/// is equivalent to bitwise operations on big-ints.
+/// is equivalent to bitwise operations on big-ints. If you need to avoid the
+/// overhead of big-ints on JavaScript use bit arrays or another package that
+/// provides faster bitwise operations.
 ///
 @external(erlang, "erlang", "bsl")
 @external(javascript, "../gleam_stdlib.mjs", "bitwise_shift_left")
@@ -830,10 +768,64 @@ pub fn bitwise_shift_left(x: Int, y: Int) -> Int
 
 /// Calculates the result of an arithmetic right bitshift.
 ///
+/// Most the time you should use the bit array syntaxes instead of manipulating
+/// bits as ints with bitwise functions.
+///
+/// ## Target specific behaviour
+///
 /// The exact behaviour of this function depends on the target platform.
 /// On Erlang it is equivalent to bitwise operations on ints, on JavaScript it
-/// is equivalent to bitwise operations on big-ints.
+/// is equivalent to bitwise operations on big-ints. If you need to avoid the
+/// overhead of big-ints on JavaScript use bit arrays or another package that
+/// provides faster bitwise operations.
 ///
 @external(erlang, "erlang", "bsr")
 @external(javascript, "../gleam_stdlib.mjs", "bitwise_shift_right")
 pub fn bitwise_shift_right(x: Int, y: Int) -> Int
+
+/// Run a function for each int between ints `from` and `to`.
+///
+/// `from` is inclusive, and `to` is exclusive.
+///
+/// ## Examples
+///
+/// ```gleam
+/// assert int.range(from: 0, to: 3, with: "", run: fn(acc, i) {
+///     acc <> int.to_string(i)
+///   })
+///   == "012"
+/// ```
+///
+/// ```gleam
+/// assert int.range(from: 1, to: -2, with: [], run: list.prepend) == [-1, 0, 1]
+/// ```
+///
+pub fn range(
+  from start: Int,
+  to stop: Int,
+  with acc: acc,
+  run reducer: fn(acc, Int) -> acc,
+) -> acc {
+  let increment = case start < stop {
+    True -> 1
+    False -> -1
+  }
+  range_loop(start, stop, increment, acc, reducer)
+}
+
+fn range_loop(
+  current: Int,
+  stop: Int,
+  increment: Int,
+  acc: acc,
+  reducer: fn(acc, Int) -> acc,
+) -> acc {
+  case current == stop {
+    True -> acc
+    False -> {
+      let acc = reducer(acc, current)
+      let current = current + increment
+      range_loop(current, stop, increment, acc, reducer)
+    }
+  }
+}

@@ -13,6 +13,6 @@
 
 ?MODULEDOC(false).
 
--type result2(FZY, FZZ, GAA) :: {ok, FZY, FZZ} | {error, GAA}.
+-type result2(FYW, FYX, FYY) :: {ok, FYW, FYX} | {error, FYY}.
 
 

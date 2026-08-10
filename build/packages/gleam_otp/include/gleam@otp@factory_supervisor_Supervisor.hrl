@@ -1,1 +1,3 @@
--record(supervisor, {pid :: gleam@erlang@process:pid_()}).
+-record(supervisor, {
+    handle :: gleam@otp@factory_supervisor:supervisor_handle()
+}).

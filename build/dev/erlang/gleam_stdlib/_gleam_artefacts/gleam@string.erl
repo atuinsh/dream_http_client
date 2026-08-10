@@ -1,7 +1,7 @@
 -module(gleam@string).
 -compile([no_auto_import, nowarn_unused_vars, nowarn_unused_function, nowarn_nomatch, inline]).
 -define(FILEPATH, "src/gleam/string.gleam").
--export([is_empty/1, length/1, reverse/1, replace/3, lowercase/1, uppercase/1, compare/2, slice/3, crop/2, byte_size/1, drop_start/2, drop_end/2, contains/2, starts_with/2, ends_with/2, pop_grapheme/1, to_graphemes/1, split/2, split_once/2, append/2, concat/1, repeat/2, join/2, pad_start/3, pad_end/3, trim_end/1, trim_start/1, trim/1, to_utf_codepoints/1, from_utf_codepoints/1, utf_codepoint/1, utf_codepoint_to_int/1, to_option/1, first/1, last/1, capitalise/1, inspect/1]).
+-export([is_empty/1, length/1, reverse/1, replace/3, lowercase/1, uppercase/1, compare/2, slice/3, crop/2, byte_size/1, drop_start/2, drop_end/2, contains/2, starts_with/2, ends_with/2, pop_grapheme/1, to_graphemes/1, split/2, split_once/2, append/2, concat/1, repeat/2, join/2, pad_start/3, pad_end/3, trim_end/1, trim_start/1, trim/1, to_utf_codepoints/1, from_utf_codepoints/1, utf_codepoint/1, utf_codepoint_to_int/1, to_option/1, first/1, last/1, capitalise/1, inspect/1, remove_prefix/2, remove_suffix/2]).
 -export_type([direction/0]).
 
 -if(?OTP_RELEASE >= 27).
@@ -13,33 +13,47 @@
 -endif.
 
 ?MODULEDOC(
-    " Strings in Gleam are UTF-8 binaries. They can be written in your code as\n"
-    " text surrounded by `\"double quotes\"`.\n"
+    " Strings are Gleam's text type, written in code using double quotes,\n"
+    " `\"like this\"`.\n"
+    "\n"
+    " Two strings can be joined together using the concatenation operator: `<>`.\n"
+    "\n"
+    " Strings use the native string type of the compilation target. On Erlang\n"
+    " they are UTF8 encoded binary strings, and on JavaScript they are UTF16\n"
+    " encoded strings.\n"
+    "\n"
+    " Several escape sequences can be used in strings:\n"
+    "\n"
+    "    `\\\"` - Double quote\n"
+    "    `\\\\` - Backslash\n"
+    "    `\\f` - Form feed\n"
+    "    `\\n` - Newline\n"
+    "    `\\r` - Carriage return\n"
+    "    `\\t` - Tab\n"
+    "    `\\u{xxxxxx}` - Unicode codepoint, where each `x` is a digit 0-9.\n"
 ).
 
 -type direction() :: leading | trailing.
 
--file("src/gleam/string.gleam", 23).
+-file("src/gleam/string.gleam", 37).
 ?DOC(
     " Determines if a `String` is empty.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " is_empty(\"\")\n"
-    " // -> True\n"
+    " assert string.is_empty(\"\")\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " is_empty(\"the world\")\n"
-    " // -> False\n"
+    " assert !string.is_empty(\"the world\")\n"
     " ```\n"
 ).
 -spec is_empty(binary()) -> boolean().
 is_empty(Str) ->
     Str =:= <<""/utf8>>.
 
--file("src/gleam/string.gleam", 51).
+-file("src/gleam/string.gleam", 62).
 ?DOC(
     " Gets the number of grapheme clusters in a given `String`.\n"
     "\n"
@@ -49,25 +63,22 @@ is_empty(Str) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " length(\"Gleam\")\n"
-    " // -> 5\n"
+    " assert string.length(\"Gleam\") == 5\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " length(\"ß↑e̊\")\n"
-    " // -> 3\n"
+    " assert string.length(\"ß↑e̊\") == 3\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " length(\"\")\n"
-    " // -> 0\n"
+    " assert string.length(\"\") == 0\n"
     " ```\n"
 ).
 -spec length(binary()) -> integer().
 length(String) ->
     string:length(String).
 
--file("src/gleam/string.gleam", 65).
+-file("src/gleam/string.gleam", 75).
 ?DOC(
     " Reverses a `String`.\n"
     "\n"
@@ -77,8 +88,7 @@ length(String) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " reverse(\"stressed\")\n"
-    " // -> \"desserts\"\n"
+    " assert string.reverse(\"stressed\") == \"desserts\"\n"
     " ```\n"
 ).
 -spec reverse(binary()) -> binary().
@@ -88,20 +98,19 @@ reverse(String) ->
     _pipe@2 = string:reverse(_pipe@1),
     unicode:characters_to_binary(_pipe@2).
 
--file("src/gleam/string.gleam", 86).
+-file("src/gleam/string.gleam", 95).
 ?DOC(
     " Creates a new `String` by replacing all occurrences of a given substring.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " replace(\"www.example.com\", each: \".\", with: \"-\")\n"
-    " // -> \"www-example-com\"\n"
+    " assert string.replace(\"www.example.com\", each: \".\", with: \"-\")\n"
+    "   == \"www-example-com\"\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " replace(\"a,b,c,d,e\", each: \",\", with: \"/\")\n"
-    " // -> \"a/b/c/d/e\"\n"
+    " assert string.replace(\"a,b,c,d,e\", each: \",\", with: \"/\") == \"a/b/c/d/e\"\n"
     " ```\n"
 ).
 -spec replace(binary(), binary(), binary()) -> binary().
@@ -111,7 +120,7 @@ replace(String, Pattern, Substitute) ->
     _pipe@2 = gleam_stdlib:string_replace(_pipe@1, Pattern, Substitute),
     unicode:characters_to_binary(_pipe@2).
 
--file("src/gleam/string.gleam", 111).
+-file("src/gleam/string.gleam", 119).
 ?DOC(
     " Creates a new `String` with all the graphemes in the input `String` converted to\n"
     " lowercase.\n"
@@ -121,15 +130,14 @@ replace(String, Pattern, Substitute) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " lowercase(\"X-FILES\")\n"
-    " // -> \"x-files\"\n"
+    " assert string.lowercase(\"X-FILES\") == \"x-files\"\n"
     " ```\n"
 ).
 -spec lowercase(binary()) -> binary().
 lowercase(String) ->
     string:lowercase(String).
 
--file("src/gleam/string.gleam", 127).
+-file("src/gleam/string.gleam", 134).
 ?DOC(
     " Creates a new `String` with all the graphemes in the input `String` converted to\n"
     " uppercase.\n"
@@ -139,15 +147,14 @@ lowercase(String) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " uppercase(\"skinner\")\n"
-    " // -> \"SKINNER\"\n"
+    " assert string.uppercase(\"skinner\") == \"SKINNER\"\n"
     " ```\n"
 ).
 -spec uppercase(binary()) -> binary().
 uppercase(String) ->
     string:uppercase(String).
 
--file("src/gleam/string.gleam", 145).
+-file("src/gleam/string.gleam", 154).
 ?DOC(
     " Compares two `String`s to see which is \"larger\" by comparing their graphemes.\n"
     "\n"
@@ -156,13 +163,15 @@ uppercase(String) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " compare(\"Anthony\", \"Anthony\")\n"
-    " // -> order.Eq\n"
+    " import gleam/order\n"
+    "\n"
+    " assert string.compare(\"Anthony\", \"Anthony\") == order.Eq\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " compare(\"A\", \"B\")\n"
-    " // -> order.Lt\n"
+    " import gleam/order\n"
+    "\n"
+    " assert string.compare(\"A\", \"B\") == order.Lt\n"
     " ```\n"
 ).
 -spec compare(binary(), binary()) -> gleam@order:order().
@@ -181,10 +190,10 @@ compare(A, B) ->
             end
     end.
 
--file("src/gleam/string.gleam", 194).
+-file("src/gleam/string.gleam", 198).
 ?DOC(
     " Takes a substring given a start grapheme index and a length. Negative indexes\n"
-    " are taken starting from the *end* of the list.\n"
+    " are taken starting from the *end* of the string.\n"
     "\n"
     " This function runs in linear time with the size of the index and the\n"
     " length. Negative indexes are linear with the size of the input string in\n"
@@ -193,28 +202,23 @@ compare(A, B) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " slice(from: \"gleam\", at_index: 1, length: 2)\n"
-    " // -> \"le\"\n"
+    " assert string.slice(from: \"gleam\", at_index: 1, length: 2) == \"le\"\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " slice(from: \"gleam\", at_index: 1, length: 10)\n"
-    " // -> \"leam\"\n"
+    " assert string.slice(from: \"gleam\", at_index: 1, length: 10) == \"leam\"\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " slice(from: \"gleam\", at_index: 10, length: 3)\n"
-    " // -> \"\"\n"
+    " assert string.slice(from: \"gleam\", at_index: 10, length: 3) == \"\"\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " slice(from: \"gleam\", at_index: -2, length: 2)\n"
-    " // -> \"am\"\n"
+    " assert string.slice(from: \"gleam\", at_index: -2, length: 2) == \"am\"\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " slice(from: \"gleam\", at_index: -12, length: 2)\n"
-    " // -> \"\"\n"
+    " assert string.slice(from: \"gleam\", at_index: -12, length: 2) == \"\"\n"
     " ```\n"
 ).
 -spec slice(binary(), integer(), integer()) -> binary().
@@ -240,7 +244,7 @@ slice(String, Idx, Len) ->
             end
     end.
 
--file("src/gleam/string.gleam", 232).
+-file("src/gleam/string.gleam", 239).
 ?DOC(
     " Drops contents of the first `String` that occur before the second `String`.\n"
     " If the `from` string does not contain the `before` string, `from` is\n"
@@ -249,15 +253,14 @@ slice(String, Idx, Len) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " crop(from: \"The Lone Gunmen\", before: \"Lone\")\n"
-    " // -> \"Lone Gunmen\"\n"
+    " assert string.crop(from: \"The Lone Gunmen\", before: \"Lone\") == \"Lone Gunmen\"\n"
     " ```\n"
 ).
 -spec crop(binary(), binary()) -> binary().
 crop(String, Substring) ->
     gleam_stdlib:crop_string(String, Substring).
 
--file("src/gleam/string.gleam", 900).
+-file("src/gleam/string.gleam", 874).
 ?DOC(
     " Returns the number of bytes in a `String`.\n"
     "\n"
@@ -267,15 +270,14 @@ crop(String, Substring) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " byte_size(\"🏳️‍⚧️🏳️‍🌈👩🏾‍❤️‍👨🏻\")\n"
-    " // -> 58\n"
+    " assert string.byte_size(\"🏳️‍⚧️🏳️‍🌈👩🏾‍❤️‍👨🏻\") == 58\n"
     " ```\n"
 ).
 -spec byte_size(binary()) -> integer().
 byte_size(String) ->
     erlang:byte_size(String).
 
--file("src/gleam/string.gleam", 245).
+-file("src/gleam/string.gleam", 251).
 ?DOC(
     " Drops *n* graphemes from the start of a `String`.\n"
     "\n"
@@ -284,8 +286,7 @@ byte_size(String) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " drop_start(from: \"The Lone Gunmen\", up_to: 2)\n"
-    " // -> \"e Lone Gunmen\"\n"
+    " assert string.drop_start(from: \"The Lone Gunmen\", up_to: 2) == \"e Lone Gunmen\"\n"
     " ```\n"
 ).
 -spec drop_start(binary(), integer()) -> binary().
@@ -304,7 +305,7 @@ drop_start(String, Num_graphemes) ->
             )
     end.
 
--file("src/gleam/string.gleam", 268).
+-file("src/gleam/string.gleam", 274).
 ?DOC(
     " Drops *n* graphemes from the end of a `String`.\n"
     "\n"
@@ -314,8 +315,8 @@ drop_start(String, Num_graphemes) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " drop_end(from: \"Cigarette Smoking Man\", up_to: 2)\n"
-    " // -> \"Cigarette Smoking M\"\n"
+    " assert string.drop_end(from: \"Cigarette Smoking Man\", up_to: 2)\n"
+    "   == \"Cigarette Smoking M\"\n"
     " ```\n"
 ).
 -spec drop_end(binary(), integer()) -> binary().
@@ -328,62 +329,57 @@ drop_end(String, Num_graphemes) ->
             slice(String, 0, string:length(String) - Num_graphemes)
     end.
 
--file("src/gleam/string.gleam", 296).
+-file("src/gleam/string.gleam", 299).
 ?DOC(
     " Checks if the first `String` contains the second.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " contains(does: \"theory\", contain: \"ory\")\n"
-    " // -> True\n"
+    " assert string.contains(does: \"theory\", contain: \"ory\")\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " contains(does: \"theory\", contain: \"the\")\n"
-    " // -> True\n"
+    " assert string.contains(does: \"theory\", contain: \"the\")\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " contains(does: \"theory\", contain: \"THE\")\n"
-    " // -> False\n"
+    " assert !string.contains(does: \"theory\", contain: \"THE\")\n"
     " ```\n"
 ).
 -spec contains(binary(), binary()) -> boolean().
 contains(Haystack, Needle) ->
     gleam_stdlib:contains_string(Haystack, Needle).
 
--file("src/gleam/string.gleam", 309).
+-file("src/gleam/string.gleam", 311).
 ?DOC(
     " Checks whether the first `String` starts with the second one.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " starts_with(\"theory\", \"ory\")\n"
-    " // -> False\n"
+    " assert !string.starts_with(\"theory\", \"ory\")\n"
     " ```\n"
 ).
 -spec starts_with(binary(), binary()) -> boolean().
 starts_with(String, Prefix) ->
     gleam_stdlib:string_starts_with(String, Prefix).
 
--file("src/gleam/string.gleam", 322).
+-file("src/gleam/string.gleam", 323).
 ?DOC(
     " Checks whether the first `String` ends with the second one.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " ends_with(\"theory\", \"ory\")\n"
-    " // -> True\n"
+    " assert string.ends_with(\"theory\", \"ory\")\n"
     " ```\n"
 ).
 -spec ends_with(binary(), binary()) -> boolean().
 ends_with(String, Suffix) ->
     gleam_stdlib:string_ends_with(String, Suffix).
 
--file("src/gleam/string.gleam", 630).
+-file("src/gleam/string.gleam", 616).
 ?DOC(
     " Splits a non-empty `String` into its first element (head) and rest (tail).\n"
     " This lets you pattern match on `String`s exactly as you would with lists.\n"
@@ -397,20 +393,18 @@ ends_with(String, Suffix) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " pop_grapheme(\"gleam\")\n"
-    " // -> Ok(#(\"g\", \"leam\"))\n"
+    " assert string.pop_grapheme(\"gleam\") == Ok(#(\"g\", \"leam\"))\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " pop_grapheme(\"\")\n"
-    " // -> Error(Nil)\n"
+    " assert string.pop_grapheme(\"\") == Error(Nil)\n"
     " ```\n"
 ).
 -spec pop_grapheme(binary()) -> {ok, {binary(), binary()}} | {error, nil}.
 pop_grapheme(String) ->
     gleam_stdlib:string_pop_grapheme(String).
 
--file("src/gleam/string.gleam", 647).
+-file("src/gleam/string.gleam", 632).
 -spec to_graphemes_loop(binary(), list(binary())) -> list(binary()).
 to_graphemes_loop(String, Acc) ->
     case gleam_stdlib:string_pop_grapheme(String) of
@@ -421,14 +415,13 @@ to_graphemes_loop(String, Acc) ->
             Acc
     end.
 
--file("src/gleam/string.gleam", 641).
+-file("src/gleam/string.gleam", 626).
 ?DOC(
     " Converts a `String` to a list of\n"
     " [graphemes](https://en.wikipedia.org/wiki/Grapheme).\n"
     "\n"
     " ```gleam\n"
-    " to_graphemes(\"abc\")\n"
-    " // -> [\"a\", \"b\", \"c\"]\n"
+    " assert string.to_graphemes(\"abc\") == [\"a\", \"b\", \"c\"]\n"
     " ```\n"
 ).
 -spec to_graphemes(binary()) -> list(binary()).
@@ -437,15 +430,15 @@ to_graphemes(String) ->
     _pipe@1 = to_graphemes_loop(_pipe, []),
     lists:reverse(_pipe@1).
 
--file("src/gleam/string.gleam", 333).
+-file("src/gleam/string.gleam", 334).
 ?DOC(
     " Creates a list of `String`s by splitting a given string on a given substring.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " split(\"home/gleam/desktop/\", on: \"/\")\n"
-    " // -> [\"home\", \"gleam\", \"desktop\", \"\"]\n"
+    " assert string.split(\"home/gleam/desktop/\", on: \"/\")\n"
+    "   == [\"home\", \"gleam\", \"desktop\", \"\"]\n"
     " ```\n"
 ).
 -spec split(binary(), binary()) -> list(binary()).
@@ -470,13 +463,12 @@ split(X, Substring) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " split_once(\"home/gleam/desktop/\", on: \"/\")\n"
-    " // -> Ok(#(\"home\", \"gleam/desktop/\"))\n"
+    " assert string.split_once(\"home/gleam/desktop/\", on: \"/\")\n"
+    "   == Ok(#(\"home\", \"gleam/desktop/\"))\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " split_once(\"home/gleam/desktop/\", on: \"?\")\n"
-    " // -> Error(Nil)\n"
+    " assert string.split_once(\"home/gleam/desktop/\", on: \"?\") == Error(Nil)\n"
     " ```\n"
 ).
 -spec split_once(binary(), binary()) -> {ok, {binary(), binary()}} |
@@ -490,7 +482,7 @@ split_once(String, Substring) ->
             {error, nil}
     end.
 
--file("src/gleam/string.gleam", 392).
+-file("src/gleam/string.gleam", 391).
 ?DOC(
     " Creates a new `String` by joining two `String`s together.\n"
     "\n"
@@ -506,15 +498,14 @@ split_once(String, Substring) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " append(to: \"butter\", suffix: \"fly\")\n"
-    " // -> \"butterfly\"\n"
+    " assert string.append(to: \"butter\", suffix: \"fly\") == \"butterfly\"\n"
     " ```\n"
 ).
 -spec append(binary(), binary()) -> binary().
 append(First, Second) ->
     <<First/binary, Second/binary>>.
 
--file("src/gleam/string.gleam", 412).
+-file("src/gleam/string.gleam", 410).
 -spec concat_loop(list(binary()), binary()) -> binary().
 concat_loop(Strings, Accumulator) ->
     case Strings of
@@ -525,7 +516,7 @@ concat_loop(Strings, Accumulator) ->
             Accumulator
     end.
 
--file("src/gleam/string.gleam", 408).
+-file("src/gleam/string.gleam", 406).
 ?DOC(
     " Creates a new `String` by joining many `String`s together.\n"
     "\n"
@@ -534,15 +525,14 @@ concat_loop(Strings, Accumulator) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " concat([\"never\", \"the\", \"less\"])\n"
-    " // -> \"nevertheless\"\n"
+    " assert string.concat([\"never\", \"the\", \"less\"]) == \"nevertheless\"\n"
     " ```\n"
 ).
 -spec concat(list(binary())) -> binary().
 concat(Strings) ->
     erlang:list_to_binary(Strings).
 
--file("src/gleam/string.gleam", 437).
+-file("src/gleam/string.gleam", 434).
 -spec repeat_loop(integer(), binary(), binary()) -> binary().
 repeat_loop(Times, Doubling_acc, Acc) ->
     Acc@1 = case Times rem 2 of
@@ -565,7 +555,7 @@ repeat_loop(Times, Doubling_acc, Acc) ->
             )
     end.
 
--file("src/gleam/string.gleam", 430).
+-file("src/gleam/string.gleam", 427).
 ?DOC(
     " Creates a new `String` by repeating a `String` a given number of times.\n"
     "\n"
@@ -574,8 +564,7 @@ repeat_loop(Times, Doubling_acc, Acc) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " repeat(\"ha\", times: 3)\n"
-    " // -> \"hahaha\"\n"
+    " assert string.repeat(\"ha\", times: 3) == \"hahaha\"\n"
     " ```\n"
 ).
 -spec repeat(binary(), integer()) -> binary().
@@ -588,7 +577,7 @@ repeat(String, Times) ->
             repeat_loop(Times, String, <<""/utf8>>)
     end.
 
--file("src/gleam/string.gleam", 467).
+-file("src/gleam/string.gleam", 464).
 -spec join_loop(list(binary()), binary(), binary()) -> binary().
 join_loop(Strings, Separator, Accumulator) ->
     case Strings of
@@ -604,7 +593,7 @@ join_loop(Strings, Separator, Accumulator) ->
             )
     end.
 
--file("src/gleam/string.gleam", 460).
+-file("src/gleam/string.gleam", 457).
 ?DOC(
     " Joins many `String`s together with a given separator.\n"
     "\n"
@@ -613,8 +602,8 @@ join_loop(Strings, Separator, Accumulator) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " join([\"home\",\"evan\",\"Desktop\"], with: \"/\")\n"
-    " // -> \"home/evan/Desktop\"\n"
+    " assert string.join([\"home\", \"evan\", \"Desktop\"], with: \"/\")\n"
+    "   == \"home/evan/Desktop\"\n"
     " ```\n"
 ).
 -spec join(list(binary()), binary()) -> binary().
@@ -627,7 +616,7 @@ join(Strings, Separator) ->
             join_loop(Rest, Separator, First)
     end.
 
--file("src/gleam/string.gleam", 545).
+-file("src/gleam/string.gleam", 536).
 -spec padding(integer(), binary()) -> binary().
 padding(Size, Pad_string) ->
     Pad_string_length = string:length(Pad_string),
@@ -642,25 +631,22 @@ padding(Size, Pad_string) ->
     <<(repeat(Pad_string, Num_pads))/binary,
         (slice(Pad_string, 0, Extra))/binary>>.
 
--file("src/gleam/string.gleam", 498).
+-file("src/gleam/string.gleam", 492).
 ?DOC(
     " Pads the start of a `String` until it has a given length.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " pad_start(\"121\", to: 5, with: \".\")\n"
-    " // -> \"..121\"\n"
+    " assert string.pad_start(\"121\", to: 5, with: \".\") == \"..121\"\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " pad_start(\"121\", to: 3, with: \".\")\n"
-    " // -> \"121\"\n"
+    " assert string.pad_start(\"121\", to: 3, with: \".\") == \"121\"\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " pad_start(\"121\", to: 2, with: \".\")\n"
-    " // -> \"121\"\n"
+    " assert string.pad_start(\"121\", to: 2, with: \".\") == \"121\"\n"
     " ```\n"
 ).
 -spec pad_start(binary(), integer(), binary()) -> binary().
@@ -675,25 +661,22 @@ pad_start(String, Desired_length, Pad_string) ->
             <<(padding(To_pad_length, Pad_string))/binary, String/binary>>
     end.
 
--file("src/gleam/string.gleam", 531).
+-file("src/gleam/string.gleam", 522).
 ?DOC(
     " Pads the end of a `String` until it has a given length.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " pad_end(\"123\", to: 5, with: \".\")\n"
-    " // -> \"123..\"\n"
+    " assert string.pad_end(\"123\", to: 5, with: \".\") == \"123..\"\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " pad_end(\"123\", to: 3, with: \".\")\n"
-    " // -> \"123\"\n"
+    " assert string.pad_end(\"123\", to: 3, with: \".\") == \"123\"\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " pad_end(\"123\", to: 2, with: \".\")\n"
-    " // -> \"123\"\n"
+    " assert string.pad_end(\"123\", to: 2, with: \".\") == \"123\"\n"
     " ```\n"
 ).
 -spec pad_end(binary(), integer(), binary()) -> binary().
@@ -708,37 +691,35 @@ pad_end(String, Desired_length, Pad_string) ->
             <<String/binary, (padding(To_pad_length, Pad_string))/binary>>
     end.
 
--file("src/gleam/string.gleam", 603).
+-file("src/gleam/string.gleam", 591).
 ?DOC(
     " Removes whitespace at the end of a `String`.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " trim_end(\"  hats  \\n\")\n"
-    " // -> \"  hats\"\n"
+    " assert string.trim_end(\"  hats  \\n\") == \"  hats\"\n"
     " ```\n"
 ).
 -spec trim_end(binary()) -> binary().
 trim_end(String) ->
     string:trim(String, trailing).
 
--file("src/gleam/string.gleam", 589).
+-file("src/gleam/string.gleam", 578).
 ?DOC(
     " Removes whitespace at the start of a `String`.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " trim_start(\"  hats  \\n\")\n"
-    " // -> \"hats  \\n\"\n"
+    " assert string.trim_start(\"  hats  \\n\") == \"hats  \\n\"\n"
     " ```\n"
 ).
 -spec trim_start(binary()) -> binary().
 trim_start(String) ->
     string:trim(String, leading).
 
--file("src/gleam/string.gleam", 567).
+-file("src/gleam/string.gleam", 557).
 ?DOC(
     " Removes whitespace on both sides of a `String`.\n"
     "\n"
@@ -750,8 +731,7 @@ trim_start(String) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " trim(\"  hats  \\n\")\n"
-    " // -> \"hats\"\n"
+    " assert string.trim(\"  hats  \\n\") == \"hats\"\n"
     " ```\n"
 ).
 -spec trim(binary()) -> binary().
@@ -760,7 +740,7 @@ trim(String) ->
     _pipe@1 = trim_start(_pipe),
     trim_end(_pipe@1).
 
--file("src/gleam/string.gleam", 694).
+-file("src/gleam/string.gleam", 678).
 -spec to_utf_codepoints_loop(bitstring(), list(integer())) -> list(integer()).
 to_utf_codepoints_loop(Bit_array, Acc) ->
     case Bit_array of
@@ -771,12 +751,12 @@ to_utf_codepoints_loop(Bit_array, Acc) ->
             lists:reverse(Acc)
     end.
 
--file("src/gleam/string.gleam", 689).
+-file("src/gleam/string.gleam", 673).
 -spec do_to_utf_codepoints(binary()) -> list(integer()).
 do_to_utf_codepoints(String) ->
     to_utf_codepoints_loop(<<String/binary>>, []).
 
--file("src/gleam/string.gleam", 684).
+-file("src/gleam/string.gleam", 668).
 ?DOC(
     " Converts a `String` to a `List` of `UtfCodepoint`.\n"
     "\n"
@@ -787,28 +767,27 @@ do_to_utf_codepoints(String) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " \"a\" |> to_utf_codepoints\n"
-    " // -> [UtfCodepoint(97)]\n"
+    " assert \"a\" |> string.to_utf_codepoints == [UtfCodepoint(97)]\n"
     " ```\n"
     "\n"
     " ```gleam\n"
     " // Semantically the same as:\n"
     " // [\"🏳\", \"️\", \"‍\", \"🌈\"] or:\n"
     " // [waving_white_flag, variant_selector_16, zero_width_joiner, rainbow]\n"
-    " \"🏳️‍🌈\" |> to_utf_codepoints\n"
-    " // -> [\n"
-    " //   UtfCodepoint(127987),\n"
-    " //   UtfCodepoint(65039),\n"
-    " //   UtfCodepoint(8205),\n"
-    " //   UtfCodepoint(127752),\n"
-    " // ]\n"
+    " assert \"🏳️‍🌈\" |> string.to_utf_codepoints\n"
+    "   == [\n"
+    "     UtfCodepoint(127_987),\n"
+    "     UtfCodepoint(65_039),\n"
+    "     UtfCodepoint(8205),\n"
+    "     UtfCodepoint(127_752),\n"
+    "   ]\n"
     " ```\n"
 ).
 -spec to_utf_codepoints(binary()) -> list(integer()).
 to_utf_codepoints(String) ->
     do_to_utf_codepoints(String).
 
--file("src/gleam/string.gleam", 734).
+-file("src/gleam/string.gleam", 717).
 ?DOC(
     " Converts a `List` of `UtfCodepoint`s to a `String`.\n"
     "\n"
@@ -819,18 +798,17 @@ to_utf_codepoints(String) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " let assert Ok(a) = utf_codepoint(97)\n"
-    " let assert Ok(b) = utf_codepoint(98)\n"
-    " let assert Ok(c) = utf_codepoint(99)\n"
-    " from_utf_codepoints([a, b, c])\n"
-    " // -> \"abc\"\n"
+    " let assert Ok(a) = string.utf_codepoint(97)\n"
+    " let assert Ok(b) = string.utf_codepoint(98)\n"
+    " let assert Ok(c) = string.utf_codepoint(99)\n"
+    " assert string.from_utf_codepoints([a, b, c]) == \"abc\"\n"
     " ```\n"
 ).
 -spec from_utf_codepoints(list(integer())) -> binary().
 from_utf_codepoints(Utf_codepoints) ->
     gleam_stdlib:utf_codepoint_list_to_string(Utf_codepoints).
 
--file("src/gleam/string.gleam", 740).
+-file("src/gleam/string.gleam", 723).
 ?DOC(
     " Converts an integer to a `UtfCodepoint`.\n"
     "\n"
@@ -852,23 +830,22 @@ utf_codepoint(Value) ->
             {ok, gleam_stdlib:identity(I@3)}
     end.
 
--file("src/gleam/string.gleam", 761).
+-file("src/gleam/string.gleam", 743).
 ?DOC(
-    " Converts an UtfCodepoint to its ordinal code point value.\n"
+    " Converts a `UtfCodepoint` to its ordinal code point value.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " let assert [utf_codepoint, ..] = to_utf_codepoints(\"💜\")\n"
-    " utf_codepoint_to_int(utf_codepoint)\n"
-    " // -> 128156\n"
+    " let assert [utf_codepoint, ..] = string.to_utf_codepoints(\"💜\")\n"
+    " assert string.utf_codepoint_to_int(utf_codepoint) == 128_156\n"
     " ```\n"
 ).
 -spec utf_codepoint_to_int(integer()) -> integer().
 utf_codepoint_to_int(Cp) ->
     gleam_stdlib:identity(Cp).
 
--file("src/gleam/string.gleam", 778).
+-file("src/gleam/string.gleam", 758).
 ?DOC(
     " Converts a `String` into `Option(String)` where an empty `String` becomes\n"
     " `None`.\n"
@@ -876,13 +853,11 @@ utf_codepoint_to_int(Cp) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " to_option(\"\")\n"
-    " // -> None\n"
+    " assert string.to_option(\"\") == None\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " to_option(\"hats\")\n"
-    " // -> Some(\"hats\")\n"
+    " assert string.to_option(\"hats\") == Some(\"hats\")\n"
     " ```\n"
 ).
 -spec to_option(binary()) -> gleam@option:option(binary()).
@@ -895,7 +870,7 @@ to_option(String) ->
             {some, String}
     end.
 
--file("src/gleam/string.gleam", 801).
+-file("src/gleam/string.gleam", 779).
 ?DOC(
     " Returns the first grapheme cluster in a given `String` and wraps it in a\n"
     " `Result(String, Nil)`. If the `String` is empty, it returns `Error(Nil)`.\n"
@@ -904,13 +879,11 @@ to_option(String) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " first(\"\")\n"
-    " // -> Error(Nil)\n"
+    " assert string.first(\"\") == Error(Nil)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " first(\"icecream\")\n"
-    " // -> Ok(\"i\")\n"
+    " assert string.first(\"icecream\") == Ok(\"i\")\n"
     " ```\n"
 ).
 -spec first(binary()) -> {ok, binary()} | {error, nil}.
@@ -923,7 +896,7 @@ first(String) ->
             {error, E}
     end.
 
--file("src/gleam/string.gleam", 827).
+-file("src/gleam/string.gleam", 803).
 ?DOC(
     " Returns the last grapheme cluster in a given `String` and wraps it in a\n"
     " `Result(String, Nil)`. If the `String` is empty, it returns `Error(Nil)`.\n"
@@ -935,13 +908,11 @@ first(String) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " last(\"\")\n"
-    " // -> Error(Nil)\n"
+    " assert string.last(\"\") == Error(Nil)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " last(\"icecream\")\n"
-    " // -> Ok(\"m\")\n"
+    " assert string.last(\"icecream\") == Ok(\"m\")\n"
     " ```\n"
 ).
 -spec last(binary()) -> {ok, binary()} | {error, nil}.
@@ -957,7 +928,7 @@ last(String) ->
             {error, E}
     end.
 
--file("src/gleam/string.gleam", 845).
+-file("src/gleam/string.gleam", 820).
 ?DOC(
     " Creates a new `String` with the first grapheme in the input `String`\n"
     " converted to uppercase and the remaining graphemes to lowercase.\n"
@@ -965,8 +936,7 @@ last(String) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " capitalise(\"mamouna\")\n"
-    " // -> \"Mamouna\"\n"
+    " assert string.capitalise(\"mamouna\") == \"Mamouna\"\n"
     " ```\n"
 ).
 -spec capitalise(binary()) -> binary().
@@ -979,7 +949,7 @@ capitalise(String) ->
             <<""/utf8>>
     end.
 
--file("src/gleam/string.gleam", 876).
+-file("src/gleam/string.gleam", 851).
 ?DOC(
     " Returns a `String` representation of a term in Gleam syntax.\n"
     "\n"
@@ -1010,3 +980,45 @@ inspect(Term) ->
     _pipe = Term,
     _pipe@1 = gleam_stdlib:inspect(_pipe),
     unicode:characters_to_binary(_pipe@1).
+
+-file("src/gleam/string.gleam", 893).
+?DOC(
+    " Removes the given prefix from the start of a `String`, if present.\n"
+    "\n"
+    " If the `String` does not start with the given prefix the string is returned\n"
+    " unchanged.\n"
+    "\n"
+    " ## Examples\n"
+    "\n"
+    " ```gleam\n"
+    " assert string.remove_prefix(\"@lpil\", \"@\") == \"lpil\"\n"
+    " ```\n"
+    "\n"
+    " ```gleam\n"
+    " assert string.remove_prefix(\"hello!\", \"@\") == \"hello!\"\n"
+    " ```\n"
+).
+-spec remove_prefix(binary(), binary()) -> binary().
+remove_prefix(String, Prefix) ->
+    gleam_stdlib:string_remove_prefix(String, Prefix).
+
+-file("src/gleam/string.gleam", 912).
+?DOC(
+    " Removes the given suffix from the end of a `String`, if present.\n"
+    "\n"
+    " If the `String` does not end with the given suffix the string is returned\n"
+    " unchanged.\n"
+    "\n"
+    " ## Examples\n"
+    "\n"
+    " ```gleam\n"
+    " assert string.remove_suffix(\"Hello!\", \"!\") == \"Hello\"\n"
+    " ```\n"
+    "\n"
+    " ```gleam\n"
+    " assert string.remove_suffix(\"Hello!?\", \"!\") == \"Hello!?\"\n"
+    " ```\n"
+).
+-spec remove_suffix(binary(), binary()) -> binary().
+remove_suffix(String, Suffix) ->
+    gleam_stdlib:string_remove_suffix(String, Suffix).

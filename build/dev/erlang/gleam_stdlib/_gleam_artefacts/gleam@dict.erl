@@ -1,8 +1,8 @@
 -module(gleam@dict).
 -compile([no_auto_import, nowarn_unused_vars, nowarn_unused_function, nowarn_nomatch, inline]).
 -define(FILEPATH, "src/gleam/dict.gleam").
--export([size/1, is_empty/1, to_list/1, new/0, insert/3, from_list/1, get/2, has_key/2, fold/3, map_values/2, keys/1, values/1, filter/2, take/2, merge/2, delete/2, drop/2, upsert/3, each/2, combine/3]).
--export_type([dict/2]).
+-export([size/1, is_empty/1, fold/3, to_list/1, new/0, from_list/1, has_key/2, get/2, insert/3, map_values/2, keys/1, values/1, filter/2, take/2, combine/3, merge/2, delete/2, drop/2, upsert/3, each/2, group/2]).
+-export_type([dict/2, transient_dict/2]).
 
 -if(?OTP_RELEASE >= 27).
 -define(MODULEDOC(Str), -moduledoc(Str)).
@@ -12,9 +12,11 @@
 -define(DOC(Str), -compile([])).
 -endif.
 
--type dict(KI, KJ) :: any() | {gleam_phantom, KI, KJ}.
+-type dict(JL, JM) :: any() | {gleam_phantom, JL, JM}.
 
--file("src/gleam/dict.gleam", 36).
+-type transient_dict(JN, JO) :: any() | {gleam_phantom, JN, JO}.
+
+-file("src/gleam/dict.gleam", 53).
 ?DOC(
     " Determines the number of key-value pairs in the dict.\n"
     " This function runs in constant time and does not need to iterate the dict.\n"
@@ -22,40 +24,68 @@
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " new() |> size\n"
-    " // -> 0\n"
+    " assert dict.new() |> dict.size == 0\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " new() |> insert(\"key\", \"value\") |> size\n"
-    " // -> 1\n"
+    " assert dict.new() |> dict.insert(\"key\", \"value\") |> dict.size == 1\n"
     " ```\n"
 ).
 -spec size(dict(any(), any())) -> integer().
 size(Dict) ->
     maps:size(Dict).
 
--file("src/gleam/dict.gleam", 52).
+-file("src/gleam/dict.gleam", 67).
 ?DOC(
     " Determines whether or not the dict is empty.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " new() |> is_empty\n"
-    " // -> True\n"
+    " assert dict.new() |> dict.is_empty\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " new() |> insert(\"b\", 1) |> is_empty\n"
-    " // -> False\n"
+    " assert !{ dict.new() |> dict.insert(\"b\", 1) |> dict.is_empty }\n"
     " ```\n"
 ).
 -spec is_empty(dict(any(), any())) -> boolean().
 is_empty(Dict) ->
     maps:size(Dict) =:= 0.
 
--file("src/gleam/dict.gleam", 80).
+-file("src/gleam/dict.gleam", 483).
+?DOC(
+    " Combines all entries into a single value by calling a given function on each\n"
+    " one.\n"
+    "\n"
+    " Dicts are not ordered so the values are not returned in any specific order. Do\n"
+    " not write code that relies on the order entries are used by this function\n"
+    " as it may change in later versions of Gleam or Erlang.\n"
+    "\n"
+    " ## Examples\n"
+    "\n"
+    " ```gleam\n"
+    " let dict = dict.from_list([#(\"a\", 1), #(\"b\", 3), #(\"c\", 9)])\n"
+    " assert dict.fold(dict, 0, fn(accumulator, key, value) { accumulator + value })\n"
+    "   == 13\n"
+    " ```\n"
+    "\n"
+    " ```gleam\n"
+    " import gleam/string\n"
+    "\n"
+    " let dict = dict.from_list([#(\"a\", 1), #(\"b\", 3), #(\"c\", 9)])\n"
+    " assert dict.fold(dict, \"\", fn(accumulator, key, value) {\n"
+    "     string.append(accumulator, key)\n"
+    "   })\n"
+    "   == \"abc\"\n"
+    " ```\n"
+).
+-spec fold(dict(QN, QO), QR, fun((QR, QN, QO) -> QR)) -> QR.
+fold(Dict, Initial, Fun) ->
+    Fun@1 = fun(Key, Value, Acc) -> Fun(Acc, Key, Value) end,
+    maps:fold(Fun@1, Initial, Dict).
+
+-file("src/gleam/dict.gleam", 97).
 ?DOC(
     " Converts the dict to a list of 2-element tuples `#(key, value)`, one for\n"
     " each key-value pair in the dict.\n"
@@ -67,74 +97,72 @@ is_empty(Dict) ->
     " Calling `to_list` on an empty `dict` returns an empty list.\n"
     "\n"
     " ```gleam\n"
-    " new() |> to_list\n"
-    " // -> []\n"
+    " assert dict.new() |> dict.to_list == []\n"
     " ```\n"
     "\n"
     " The ordering of elements in the resulting list is an implementation detail\n"
     " that should not be relied upon.\n"
     "\n"
     " ```gleam\n"
-    " new() |> insert(\"b\", 1) |> insert(\"a\", 0) |> insert(\"c\", 2) |> to_list\n"
-    " // -> [#(\"a\", 0), #(\"b\", 1), #(\"c\", 2)]\n"
+    " assert dict.new()\n"
+    "   |> dict.insert(\"b\", 1)\n"
+    "   |> dict.insert(\"a\", 0)\n"
+    "   |> dict.insert(\"c\", 2)\n"
+    "   |> dict.to_list\n"
+    "   == [#(\"a\", 0), #(\"b\", 1), #(\"c\", 2)]\n"
     " ```\n"
 ).
--spec to_list(dict(KS, KT)) -> list({KS, KT}).
+-spec to_list(dict(KJ, KK)) -> list({KJ, KK}).
 to_list(Dict) ->
     maps:to_list(Dict).
 
--file("src/gleam/dict.gleam", 129).
+-file("src/gleam/dict.gleam", 146).
 ?DOC(" Creates a fresh dict that contains no values.\n").
 -spec new() -> dict(any(), any()).
 new() ->
     maps:new().
 
--file("src/gleam/dict.gleam", 169).
-?DOC(
-    " Inserts a value into the dict with the given key.\n"
-    "\n"
-    " If the dict already has a value for the given key then the value is\n"
-    " replaced with the new value.\n"
-    "\n"
-    " ## Examples\n"
-    "\n"
-    " ```gleam\n"
-    " new() |> insert(\"a\", 0)\n"
-    " // -> from_list([#(\"a\", 0)])\n"
-    " ```\n"
-    "\n"
-    " ```gleam\n"
-    " new() |> insert(\"a\", 0) |> insert(\"a\", 5)\n"
-    " // -> from_list([#(\"a\", 5)])\n"
-    " ```\n"
-).
--spec insert(dict(MB, MC), MB, MC) -> dict(MB, MC).
-insert(Dict, Key, Value) ->
-    maps:put(Key, Value, Dict).
-
--file("src/gleam/dict.gleam", 92).
--spec from_list_loop(list({LC, LD}), dict(LC, LD)) -> dict(LC, LD).
-from_list_loop(List, Initial) ->
+-file("src/gleam/dict.gleam", 111).
+-spec from_list_loop(transient_dict(KT, KU), list({KT, KU})) -> dict(KT, KU).
+from_list_loop(Transient, List) ->
     case List of
         [] ->
-            Initial;
+            gleam_stdlib:identity(Transient);
 
         [{Key, Value} | Rest] ->
-            from_list_loop(Rest, insert(Initial, Key, Value))
+            from_list_loop(maps:put(Key, Value, Transient), Rest)
     end.
 
--file("src/gleam/dict.gleam", 88).
+-file("src/gleam/dict.gleam", 107).
 ?DOC(
     " Converts a list of 2-element tuples `#(key, value)` to a dict.\n"
     "\n"
     " If two tuples have the same key the last one in the list will be the one\n"
     " that is present in the dict.\n"
 ).
--spec from_list(list({KX, KY})) -> dict(KX, KY).
+-spec from_list(list({KO, KP})) -> dict(KO, KP).
 from_list(List) ->
     maps:from_list(List).
 
--file("src/gleam/dict.gleam", 150).
+-file("src/gleam/dict.gleam", 135).
+?DOC(
+    " Determines whether or not a value is present in the dict for a given key.\n"
+    "\n"
+    " ## Examples\n"
+    "\n"
+    " ```gleam\n"
+    " assert dict.new() |> dict.insert(\"a\", 0) |> dict.has_key(\"a\")\n"
+    " ```\n"
+    "\n"
+    " ```gleam\n"
+    " assert !{ dict.new() |> dict.insert(\"a\", 0) |> dict.has_key(\"b\") }\n"
+    " ```\n"
+).
+-spec has_key(dict(LA, any()), LA) -> boolean().
+has_key(Dict, Key) ->
+    maps:is_key(Key, Dict).
+
+-file("src/gleam/dict.gleam", 165).
 ?DOC(
     " Fetches a value from a dict for a given key.\n"
     "\n"
@@ -144,82 +172,40 @@ from_list(List) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " new() |> insert(\"a\", 0) |> get(\"a\")\n"
-    " // -> Ok(0)\n"
+    " assert dict.new() |> dict.insert(\"a\", 0) |> dict.get(\"a\") == Ok(0)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " new() |> insert(\"a\", 0) |> get(\"b\")\n"
-    " // -> Error(Nil)\n"
+    " assert dict.new() |> dict.insert(\"a\", 0) |> dict.get(\"b\") == Error(Nil)\n"
     " ```\n"
 ).
--spec get(dict(LV, LW), LV) -> {ok, LW} | {error, nil}.
+-spec get(dict(LM, LN), LM) -> {ok, LN} | {error, nil}.
 get(From, Get) ->
     gleam_stdlib:map_get(From, Get).
 
--file("src/gleam/dict.gleam", 116).
+-file("src/gleam/dict.gleam", 184).
 ?DOC(
-    " Determines whether or not a value present in the dict for a given key.\n"
+    " Inserts a value into the dict with the given key.\n"
+    "\n"
+    " If the dict already has a value for the given key then the value is\n"
+    " replaced with the new value.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " new() |> insert(\"a\", 0) |> has_key(\"a\")\n"
-    " // -> True\n"
+    " assert dict.new() |> dict.insert(\"a\", 0) == dict.from_list([#(\"a\", 0)])\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " new() |> insert(\"a\", 0) |> has_key(\"b\")\n"
-    " // -> False\n"
+    " assert dict.new() |> dict.insert(\"a\", 0) |> dict.insert(\"a\", 5)\n"
+    "   == dict.from_list([#(\"a\", 5)])\n"
     " ```\n"
 ).
--spec has_key(dict(LJ, any()), LJ) -> boolean().
-has_key(Dict, Key) ->
-    maps:is_key(Key, Dict).
+-spec insert(dict(LS, LT), LS, LT) -> dict(LS, LT).
+insert(Dict, Key, Value) ->
+    maps:put(Key, Value, Dict).
 
--file("src/gleam/dict.gleam", 484).
--spec fold_loop(list({RI, RJ}), RL, fun((RL, RI, RJ) -> RL)) -> RL.
-fold_loop(List, Initial, Fun) ->
-    case List of
-        [] ->
-            Initial;
-
-        [{K, V} | Rest] ->
-            fold_loop(Rest, Fun(Initial, K, V), Fun)
-    end.
-
--file("src/gleam/dict.gleam", 476).
-?DOC(
-    " Combines all entries into a single value by calling a given function on each\n"
-    " one.\n"
-    "\n"
-    " Dicts are not ordered so the values are not returned in any specific order. Do\n"
-    " not write code that relies on the order entries are used by this function\n"
-    " as it may change in later versions of Gleam or Erlang.\n"
-    "\n"
-    " # Examples\n"
-    "\n"
-    " ```gleam\n"
-    " let dict = from_list([#(\"a\", 1), #(\"b\", 3), #(\"c\", 9)])\n"
-    " fold(dict, 0, fn(accumulator, key, value) { accumulator + value })\n"
-    " // -> 13\n"
-    " ```\n"
-    "\n"
-    " ```gleam\n"
-    " import gleam/string\n"
-    "\n"
-    " let dict = from_list([#(\"a\", 1), #(\"b\", 3), #(\"c\", 9)])\n"
-    " fold(dict, \"\", fn(accumulator, key, value) {\n"
-    "   string.append(accumulator, key)\n"
-    " })\n"
-    " // -> \"abc\"\n"
-    " ```\n"
-).
--spec fold(dict(RD, RE), RH, fun((RH, RD, RE) -> RH)) -> RH.
-fold(Dict, Initial, Fun) ->
-    fold_loop(maps:to_list(Dict), Initial, Fun).
-
--file("src/gleam/dict.gleam", 188).
+-file("src/gleam/dict.gleam", 215).
 ?DOC(
     " Updates all values in a given dict by calling a given function on each key\n"
     " and value.\n"
@@ -227,38 +213,16 @@ fold(Dict, Initial, Fun) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " from_list([#(3, 3), #(2, 4)])\n"
-    " |> map_values(fn(key, value) { key * value })\n"
-    " // -> from_list([#(3, 9), #(2, 8)])\n"
+    " assert dict.from_list([#(3, 3), #(2, 4)])\n"
+    "   |> dict.map_values(fn(key, value) { key * value })\n"
+    "   == dict.from_list([#(3, 9), #(2, 8)])\n"
     " ```\n"
 ).
--spec map_values(dict(MN, MO), fun((MN, MO) -> MR)) -> dict(MN, MR).
+-spec map_values(dict(MK, ML), fun((MK, ML) -> MO)) -> dict(MK, MO).
 map_values(Dict, Fun) ->
     maps:map(Fun, Dict).
 
--file("src/gleam/dict.gleam", 223).
--spec reverse_and_concat(list(NL), list(NL)) -> list(NL).
-reverse_and_concat(Remaining, Accumulator) ->
-    case Remaining of
-        [] ->
-            Accumulator;
-
-        [First | Rest] ->
-            reverse_and_concat(Rest, [First | Accumulator])
-    end.
-
--file("src/gleam/dict.gleam", 216).
--spec do_keys_loop(list({NG, any()}), list(NG)) -> list(NG).
-do_keys_loop(List, Acc) ->
-    case List of
-        [] ->
-            reverse_and_concat(Acc, []);
-
-        [{Key, _} | Rest] ->
-            do_keys_loop(Rest, [Key | Acc])
-    end.
-
--file("src/gleam/dict.gleam", 212).
+-file("src/gleam/dict.gleam", 235).
 ?DOC(
     " Gets a list of all keys in a given dict.\n"
     "\n"
@@ -269,26 +233,14 @@ do_keys_loop(List, Acc) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " from_list([#(\"a\", 0), #(\"b\", 1)]) |> keys\n"
-    " // -> [\"a\", \"b\"]\n"
+    " assert dict.from_list([#(\"a\", 0), #(\"b\", 1)]) |> dict.keys == [\"a\", \"b\"]\n"
     " ```\n"
 ).
--spec keys(dict(NB, any())) -> list(NB).
+-spec keys(dict(MY, any())) -> list(MY).
 keys(Dict) ->
     maps:keys(Dict).
 
--file("src/gleam/dict.gleam", 249).
--spec do_values_loop(list({any(), NV}), list(NV)) -> list(NV).
-do_values_loop(List, Acc) ->
-    case List of
-        [] ->
-            reverse_and_concat(Acc, []);
-
-        [{_, Value} | Rest] ->
-            do_values_loop(Rest, [Value | Acc])
-    end.
-
--file("src/gleam/dict.gleam", 244).
+-file("src/gleam/dict.gleam", 252).
 ?DOC(
     " Gets a list of all values in a given dict.\n"
     "\n"
@@ -299,11 +251,10 @@ do_values_loop(List, Acc) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " from_list([#(\"a\", 0), #(\"b\", 1)]) |> values\n"
-    " // -> [0, 1]\n"
+    " assert dict.from_list([#(\"a\", 0), #(\"b\", 1)]) |> dict.values == [0, 1]\n"
     " ```\n"
 ).
--spec values(dict(any(), NQ)) -> list(NQ).
+-spec values(dict(any(), NE)) -> list(NE).
 values(Dict) ->
     maps:values(Dict).
 
@@ -315,37 +266,36 @@ values(Dict) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " from_list([#(\"a\", 0), #(\"b\", 1)])\n"
-    " |> filter(fn(key, value) { value != 0 })\n"
-    " // -> from_list([#(\"b\", 1)])\n"
+    " assert dict.from_list([#(\"a\", 0), #(\"b\", 1)])\n"
+    "   |> dict.filter(fn(key, value) { value != 0 })\n"
+    "   == dict.from_list([#(\"b\", 1)])\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " from_list([#(\"a\", 0), #(\"b\", 1)])\n"
-    " |> filter(fn(key, value) { True })\n"
-    " // -> from_list([#(\"a\", 0), #(\"b\", 1)])\n"
+    " assert dict.from_list([#(\"a\", 0), #(\"b\", 1)])\n"
+    "   |> dict.filter(fn(key, value) { True })\n"
+    "   == dict.from_list([#(\"a\", 0), #(\"b\", 1)])\n"
     " ```\n"
 ).
--spec filter(dict(NZ, OA), fun((NZ, OA) -> boolean())) -> dict(NZ, OA).
+-spec filter(dict(NI, NJ), fun((NI, NJ) -> boolean())) -> dict(NI, NJ).
 filter(Dict, Predicate) ->
     maps:filter(Predicate, Dict).
 
--file("src/gleam/dict.gleam", 318).
--spec do_take_loop(dict(OZ, PA), list(OZ), dict(OZ, PA)) -> dict(OZ, PA).
+-file("src/gleam/dict.gleam", 321).
+-spec do_take_loop(dict(OI, OJ), list(OI), transient_dict(OI, OJ)) -> dict(OI, OJ).
 do_take_loop(Dict, Desired_keys, Acc) ->
-    Insert = fun(Taken, Key) -> case gleam_stdlib:map_get(Dict, Key) of
-            {ok, Value} ->
-                insert(Taken, Key, Value);
-
-            {error, _} ->
-                Taken
-        end end,
     case Desired_keys of
         [] ->
-            Acc;
+            gleam_stdlib:identity(Acc);
 
-        [First | Rest] ->
-            do_take_loop(Dict, Rest, Insert(Acc, First))
+        [Key | Rest] ->
+            case gleam_stdlib:map_get(Dict, Key) of
+                {ok, Value} ->
+                    do_take_loop(Dict, Rest, maps:put(Key, Value, Acc));
+
+                {error, _} ->
+                    do_take_loop(Dict, Rest, Acc)
+            end
     end.
 
 -file("src/gleam/dict.gleam", 309).
@@ -356,36 +306,40 @@ do_take_loop(Dict, Desired_keys, Acc) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " from_list([#(\"a\", 0), #(\"b\", 1)])\n"
-    " |> take([\"b\"])\n"
-    " // -> from_list([#(\"b\", 1)])\n"
+    " assert dict.from_list([#(\"a\", 0), #(\"b\", 1)])\n"
+    "   |> dict.take([\"b\"])\n"
+    "   == dict.from_list([#(\"b\", 1)])\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " from_list([#(\"a\", 0), #(\"b\", 1)])\n"
-    " |> take([\"a\", \"b\", \"c\"])\n"
-    " // -> from_list([#(\"a\", 0), #(\"b\", 1)])\n"
+    " assert dict.from_list([#(\"a\", 0), #(\"b\", 1)])\n"
+    "   |> dict.take([\"a\", \"b\", \"c\"])\n"
+    "   == dict.from_list([#(\"a\", 0), #(\"b\", 1)])\n"
     " ```\n"
 ).
--spec take(dict(OL, OM), list(OL)) -> dict(OL, OM).
+-spec take(dict(NU, NV), list(NU)) -> dict(NU, NV).
 take(Dict, Desired_keys) ->
     maps:with(Desired_keys, Dict).
 
--file("src/gleam/dict.gleam", 363).
--spec insert_pair(dict(PX, PY), {PX, PY}) -> dict(PX, PY).
-insert_pair(Dict, Pair) ->
-    insert(Dict, erlang:element(1, Pair), erlang:element(2, Pair)).
-
--file("src/gleam/dict.gleam", 356).
--spec fold_inserts(list({PQ, PR}), dict(PQ, PR)) -> dict(PQ, PR).
-fold_inserts(New_entries, Dict) ->
-    case New_entries of
-        [] ->
-            Dict;
-
-        [First | Rest] ->
-            fold_inserts(Rest, insert_pair(Dict, First))
-    end.
+-file("src/gleam/dict.gleam", 536).
+?DOC(
+    " Creates a new dict from a pair of given dicts by combining their entries.\n"
+    "\n"
+    " If there are entries with the same keys in both dicts the given function is\n"
+    " used to determine the new value to use in the resulting dict.\n"
+    "\n"
+    " ## Examples\n"
+    "\n"
+    " ```gleam\n"
+    " let a = dict.from_list([#(\"a\", 0), #(\"b\", 1)])\n"
+    " let b = dict.from_list([#(\"a\", 2), #(\"c\", 3)])\n"
+    " assert dict.combine(a, b, fn(one, other) { one + other })\n"
+    "   == dict.from_list([#(\"a\", 2), #(\"b\", 1), #(\"c\", 3)])\n"
+    " ```\n"
+).
+-spec combine(dict(RC, RD), dict(RC, RD), fun((RD, RD) -> RD)) -> dict(RC, RD).
+combine(Dict, Other, Fun) ->
+    maps:merge_with(fun(_, L, R) -> Fun(L, R) end, Dict, Other).
 
 -file("src/gleam/dict.gleam", 350).
 ?DOC(
@@ -397,17 +351,16 @@ fold_inserts(New_entries, Dict) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " let a = from_list([#(\"a\", 0), #(\"b\", 1)])\n"
-    " let b = from_list([#(\"b\", 2), #(\"c\", 3)])\n"
-    " merge(a, b)\n"
-    " // -> from_list([#(\"a\", 0), #(\"b\", 2), #(\"c\", 3)])\n"
+    " let a = dict.from_list([#(\"a\", 0), #(\"b\", 1)])\n"
+    " let b = dict.from_list([#(\"b\", 2), #(\"c\", 3)])\n"
+    " assert dict.merge(a, b) == dict.from_list([#(\"a\", 0), #(\"b\", 2), #(\"c\", 3)])\n"
     " ```\n"
 ).
--spec merge(dict(PI, PJ), dict(PI, PJ)) -> dict(PI, PJ).
+-spec merge(dict(OR, OS), dict(OR, OS)) -> dict(OR, OS).
 merge(Dict, New_entries) ->
     maps:merge(Dict, New_entries).
 
--file("src/gleam/dict.gleam", 382).
+-file("src/gleam/dict.gleam", 372).
 ?DOC(
     " Creates a new dict from a given dict with all the same entries except for the\n"
     " one with a given key, if it exists.\n"
@@ -415,20 +368,33 @@ merge(Dict, New_entries) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " from_list([#(\"a\", 0), #(\"b\", 1)]) |> delete(\"a\")\n"
-    " // -> from_list([#(\"b\", 1)])\n"
+    " assert dict.from_list([#(\"a\", 0), #(\"b\", 1)]) |> dict.delete(\"a\")\n"
+    "   == dict.from_list([#(\"b\", 1)])\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " from_list([#(\"a\", 0), #(\"b\", 1)]) |> delete(\"c\")\n"
-    " // -> from_list([#(\"a\", 0), #(\"b\", 1)])\n"
+    " assert dict.from_list([#(\"a\", 0), #(\"b\", 1)]) |> dict.delete(\"c\")\n"
+    "   == dict.from_list([#(\"a\", 0), #(\"b\", 1)])\n"
     " ```\n"
 ).
--spec delete(dict(QD, QE), QD) -> dict(QD, QE).
+-spec delete(dict(OZ, PA), OZ) -> dict(OZ, PA).
 delete(Dict, Key) ->
-    maps:remove(Key, Dict).
+    _pipe = gleam_stdlib:identity(Dict),
+    _pipe@1 = maps:remove(Key, _pipe),
+    gleam_stdlib:identity(_pipe@1).
 
--file("src/gleam/dict.gleam", 410).
+-file("src/gleam/dict.gleam", 412).
+-spec drop_loop(transient_dict(PZ, QA), list(PZ)) -> dict(PZ, QA).
+drop_loop(Transient, Disallowed_keys) ->
+    case Disallowed_keys of
+        [] ->
+            gleam_stdlib:identity(Transient);
+
+        [Key | Rest] ->
+            drop_loop(maps:remove(Key, Transient), Rest)
+    end.
+
+-file("src/gleam/dict.gleam", 400).
 ?DOC(
     " Creates a new dict from a given dict with all the same entries except any with\n"
     " keys found in a given list.\n"
@@ -436,41 +402,35 @@ delete(Dict, Key) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " from_list([#(\"a\", 0), #(\"b\", 1)]) |> drop([\"a\"])\n"
-    " // -> from_list([#(\"b\", 1)])\n"
+    " assert dict.from_list([#(\"a\", 0), #(\"b\", 1)]) |> dict.drop([\"a\"])\n"
+    "   == dict.from_list([#(\"b\", 1)])\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " from_list([#(\"a\", 0), #(\"b\", 1)]) |> drop([\"c\"])\n"
-    " // -> from_list([#(\"a\", 0), #(\"b\", 1)])\n"
+    " assert dict.from_list([#(\"a\", 0), #(\"b\", 1)]) |> dict.drop([\"c\"])\n"
+    "   == dict.from_list([#(\"a\", 0), #(\"b\", 1)])\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " from_list([#(\"a\", 0), #(\"b\", 1)]) |> drop([\"a\", \"b\", \"c\"])\n"
-    " // -> from_list([])\n"
+    " assert dict.from_list([#(\"a\", 0), #(\"b\", 1)]) |> dict.drop([\"a\", \"b\", \"c\"])\n"
+    "   == dict.from_list([])\n"
     " ```\n"
 ).
--spec drop(dict(QP, QQ), list(QP)) -> dict(QP, QQ).
+-spec drop(dict(PL, PM), list(PL)) -> dict(PL, PM).
 drop(Dict, Disallowed_keys) ->
-    case Disallowed_keys of
-        [] ->
-            Dict;
+    maps:without(Disallowed_keys, Dict).
 
-        [First | Rest] ->
-            drop(delete(Dict, First), Rest)
-    end.
-
--file("src/gleam/dict.gleam", 440).
+-file("src/gleam/dict.gleam", 446).
 ?DOC(
     " Creates a new dict with one entry inserted or updated using a given function.\n"
     "\n"
     " If there was not an entry in the dict for the given key then the function\n"
     " gets `None` as its argument, otherwise it gets `Some(value)`.\n"
     "\n"
-    " ## Example\n"
+    " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " let dict = from_list([#(\"a\", 0)])\n"
+    " let dict = dict.from_list([#(\"a\", 0)])\n"
     " let increment = fn(x) {\n"
     "   case x {\n"
     "     Some(i) -> i + 1\n"
@@ -478,14 +438,15 @@ drop(Dict, Disallowed_keys) ->
     "   }\n"
     " }\n"
     "\n"
-    " upsert(dict, \"a\", increment)\n"
-    " // -> from_list([#(\"a\", 1)])\n"
+    " assert dict.upsert(dict, \"a\", increment) == dict.from_list([#(\"a\", 1)])\n"
+    " ```\n"
     "\n"
-    " upsert(dict, \"b\", increment)\n"
-    " // -> from_list([#(\"a\", 0), #(\"b\", 0)])\n"
+    " ```gleam\n"
+    " assert dict.upsert(dict, \"b\", increment)\n"
+    "   == dict.from_list([#(\"a\", 0), #(\"b\", 0)])\n"
     " ```\n"
 ).
--spec upsert(dict(QW, QX), QW, fun((gleam@option:option(QX)) -> QX)) -> dict(QW, QX).
+-spec upsert(dict(QG, QH), QG, fun((gleam@option:option(QH)) -> QH)) -> dict(QG, QH).
 upsert(Dict, Key, Fun) ->
     case gleam_stdlib:map_get(Dict, Key) of
         {ok, Value} ->
@@ -495,7 +456,7 @@ upsert(Dict, Key, Fun) ->
             insert(Dict, Key, Fun(none))
     end.
 
--file("src/gleam/dict.gleam", 517).
+-file("src/gleam/dict.gleam", 515).
 ?DOC(
     " Calls a function for each key and value in a dict, discarding the return\n"
     " value.\n"
@@ -505,12 +466,10 @@ upsert(Dict, Key, Fun) ->
     " ```gleam\n"
     " import gleam/io\n"
     "\n"
-    " let dict = from_list([#(\"a\", \"apple\"), #(\"b\", \"banana\"), #(\"c\", \"cherry\")])\n"
+    " let dict =\n"
+    "   dict.from_list([#(\"a\", \"apple\"), #(\"b\", \"banana\"), #(\"c\", \"cherry\")])\n"
     "\n"
-    " each(dict, fn(k, v) {\n"
-    "   io.println(key <> \" => \" <> value)\n"
-    " })\n"
-    " // -> Nil\n"
+    " assert dict.each(dict, fn(k, v) { io.println(k <> \" => \" <> v) }) == Nil\n"
     " // a => apple\n"
     " // b => banana\n"
     " // c => cherry\n"
@@ -519,7 +478,7 @@ upsert(Dict, Key, Fun) ->
     " The order of elements in the iteration is an implementation detail that\n"
     " should not be relied upon.\n"
 ).
--spec each(dict(RM, RN), fun((RM, RN) -> any())) -> nil.
+-spec each(dict(QX, QY), fun((QX, QY) -> any())) -> nil.
 each(Dict, Fun) ->
     fold(
         Dict,
@@ -530,32 +489,23 @@ each(Dict, Fun) ->
         end
     ).
 
--file("src/gleam/dict.gleam", 538).
-?DOC(
-    " Creates a new dict from a pair of given dicts by combining their entries.\n"
-    "\n"
-    " If there are entries with the same keys in both dicts the given function is\n"
-    " used to determine the new value to use in the resulting dict.\n"
-    "\n"
-    " ## Examples\n"
-    "\n"
-    " ```gleam\n"
-    " let a = from_list([#(\"a\", 0), #(\"b\", 1)])\n"
-    " let b = from_list([#(\"a\", 2), #(\"c\", 3)])\n"
-    " combine(a, b, fn(one, other) { one + other })\n"
-    " // -> from_list([#(\"a\", 2), #(\"b\", 1), #(\"c\", 3)])\n"
-    " ```\n"
-).
--spec combine(dict(RR, RS), dict(RR, RS), fun((RS, RS) -> RS)) -> dict(RR, RS).
-combine(Dict, Other, Fun) ->
-    fold(
-        Dict,
-        Other,
-        fun(Acc, Key, Value) -> case gleam_stdlib:map_get(Acc, Key) of
-                {ok, Other_value} ->
-                    insert(Acc, Key, Fun(Value, Other_value));
+-file("src/gleam/dict.gleam", 577).
+-spec group_loop(transient_dict(SE, list(SF)), fun((SF) -> SE), list(SF)) -> dict(SE, list(SF)).
+group_loop(Transient, To_key, List) ->
+    case List of
+        [] ->
+            gleam_stdlib:identity(Transient);
 
-                {error, _} ->
-                    insert(Acc, Key, Value)
-            end end
-    ).
+        [Value | Rest] ->
+            Key = To_key(Value),
+            Update = fun(Existing) -> [Value | Existing] end,
+            _pipe = Transient,
+            _pipe@1 = maps:update_with(Key, Update, [Value], _pipe),
+            group_loop(_pipe@1, To_key, Rest)
+    end.
+
+-file("src/gleam/dict.gleam", 573).
+?DOC(false).
+-spec group(fun((RY) -> RZ), list(RY)) -> dict(RZ, list(RY)).
+group(Key, List) ->
+    group_loop(gleam_stdlib:identity(maps:new()), Key, List).

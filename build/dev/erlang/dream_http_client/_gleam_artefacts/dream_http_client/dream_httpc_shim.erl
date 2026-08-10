@@ -1,16 +1,16 @@
 -module(dream_httpc_shim).
 
--export([request_stream/6, fetch_next/2, request_stream_messages/6, cancel_stream/1,
-         cancel_stream_by_string/1, receive_stream_message/1, decode_stream_message_for_selector/1,
-         normalize_headers/1, request_sync/5, request_sync_response/5, ets_table_exists/1, ets_new/2, ets_insert/6,
-         ets_lookup/2, ets_delete/2, ensure_ref_mapping_table/0]).
+-export([request_stream/6, fetch_next/2, fetch_start_headers/2, request_stream_messages/6,
+         cancel_stream/1, cancel_stream_by_string/1, receive_stream_message/1,
+         decode_stream_message_for_selector/1, normalize_headers/1, request_sync/5,
+         ets_table_exists/1, ets_new/2, ets_insert/7, ets_lookup/2, ets_delete/2]).
 
 %% @doc Start a streaming HTTP request with pull-based chunk retrieval
 %%
 %% Initiates a streaming HTTP request using Erlang's `httpc` library in continuous
 %% streaming mode. Creates an owner process that manages the stream and services
-%% `fetch_next/2` requests. This function returns immediately; chunks are retrieved
-%% by calling `fetch_next/2` with the returned owner PID.
+%% `fetch_next` requests. This function returns immediately; chunks are retrieved
+%% by calling `fetch_next` with the returned owner PID.
 %%
 %% ## Parameters
 %%
@@ -24,7 +24,7 @@
 %% ## Returns
 %%
 %% `{ok, OwnerPid}` where `OwnerPid` is the process handling the stream. Use this
-%% PID with `fetch_next/2` to retrieve chunks.
+%% PID with `fetch_next` to retrieve chunks.
 %%
 %% ## Examples
 %%
@@ -35,9 +35,9 @@
 %%
 %% ## Notes
 %%
-%% - Returns immediately; HTTP errors are detected asynchronously via `fetch_next/2`
+%% - Returns immediately; HTTP errors are detected asynchronously via `fetch_next`
 %% - The owner process will exit if the HTTP request fails to start
-%% - `fetch_next/2` will detect the dead process and return an error
+%% - `fetch_next` will detect the dead process and return an error
 %% - Ensures `ssl` and `inets` applications are started before making requests
 %% - Configures httpc with streaming-optimized settings (no pipelining, high session cap)
 request_stream(Method, Url, Headers, Body, _Receiver, TimeoutMs) ->
@@ -46,7 +46,7 @@ request_stream(Method, Url, Headers, Body, _Receiver, TimeoutMs) ->
     ok = configure_httpc(),
 
     NUrl = to_list(Url),
-    NHeaders = to_headers(Headers),
+    NHeaders = maybe_add_accept_encoding(to_headers(Headers)),
     Req = build_req(NUrl, NHeaders, Body),
     Owner = spawn(fun() -> stream_owner_loop(Method, Req, NUrl, TimeoutMs) end),
     {ok, Owner}.
@@ -60,7 +60,7 @@ request_stream(Method, Url, Headers, Body, _Receiver, TimeoutMs) ->
 %%
 %% ## Parameters
 %%
-%% - `OwnerPid`: The owner process PID returned from `request_stream/6`
+%% - `OwnerPid`: The owner process PID returned from `request_stream`
 %% - `TimeoutMs`: Timeout in milliseconds (0 for non-blocking, -1 for infinite wait)
 %%
 %% ## Returns
@@ -108,173 +108,177 @@ fetch_next(OwnerPid, TimeoutMs) ->
         {error, timeout}
     end.
 
+%% @doc Fetch the response headers from stream_start
+%%
+%% Returns the normalized headers received in the initial `stream_start` message.
+%% This is used by the recorder to persist response headers for streaming recordings.
+%%
+%% Note: httpc's streamed response status code is not included in stream_start.
+fetch_start_headers(OwnerPid, TimeoutMs) ->
+    MonitorRef = erlang:monitor(process, OwnerPid),
+    OwnerPid ! {fetch_start_headers, self()},
+    receive
+        {stream_start_headers, Headers} ->
+            erlang:demonitor(MonitorRef, [flush]),
+            {ok, Headers};
+        {'DOWN', MonitorRef, process, OwnerPid, Reason} ->
+            {error, format_exit_reason(Reason)}
+    after TimeoutMs ->
+        erlang:demonitor(MonitorRef, [flush]),
+        {error, timeout}
+    end.
+
 %% Stream owner process: starts httpc in continuous mode and services fetch_next requests
 stream_owner_loop(Method, Req, _Url, TimeoutMs) ->
     HttpOpts = [{timeout, TimeoutMs}, {connect_timeout, 15000}, {autoredirect, true}],
     Opts = [{stream, self}, {sync, false}],
     case httpc:request(Method, Req, HttpOpts, Opts) of
         {ok, RequestId} ->
-            stream_owner_wait(RequestId, []);
+            stream_owner_wait(RequestId, [], undefined, [], undefined);
         Error ->
-            %% HTTP request failed to start - exit with error
-            %% fetch_next will detect the dead process and return an error
             exit({stream_start_failed, Error})
     end.
 
 %% Wait for either a fetch_next request or internal http messages (buffered)
 %% State:
 %%   Buffer - queued {chunk, Bin}/{finished, Headers}/{error, Reason}
-stream_owner_wait(RequestId, Buffer) ->
+%%   StartHeaders - normalized headers from stream_start (or undefined)
+%%   StartWaiters - callers waiting for stream_start headers
+%%   ZlibCtx - zlib inflate context for decompression (undefined if none)
+stream_owner_wait(RequestId, Buffer, StartHeaders, StartWaiters, ZlibCtx) ->
     receive
         {fetch_next, From} ->
-            handle_fetch_next(From, RequestId, Buffer);
-        {http, {RequestId, stream_start, _Headers}} ->
-            %% Headers received
-            stream_owner_wait(RequestId, Buffer);
-        {http, {RequestId, stream_start, _Headers, _NewPid}} ->
-            %% Some httpc versions send stream_start with an extra pid argument
-            stream_owner_wait(RequestId, Buffer);
+            handle_fetch_next(From, RequestId, Buffer, StartHeaders, StartWaiters, ZlibCtx);
+        {fetch_start_headers, From} ->
+            case StartHeaders of
+                undefined ->
+                    stream_owner_wait(RequestId, Buffer, StartHeaders, [From | StartWaiters], ZlibCtx);
+                _ ->
+                    From ! {stream_start_headers, normalize_headers_default(StartHeaders)},
+                    stream_owner_wait(RequestId, Buffer, StartHeaders, StartWaiters, ZlibCtx)
+            end;
         {http, {RequestId, stream, Bin}} ->
-            %% Buffer the chunk; we only emit on fetch_next to maintain pull model
-            stream_owner_wait(RequestId, Buffer ++ [{chunk, Bin}]);
+            DecompBin = case ZlibCtx of
+                undefined -> Bin;
+                _ -> decompress_chunk(ZlibCtx, Bin)
+            end,
+            stream_owner_wait(RequestId, Buffer ++ [{chunk, DecompBin}], StartHeaders, StartWaiters, ZlibCtx);
+        {http, {RequestId, stream_start, Headers}} ->
+            Norm = normalize_headers(Headers),
+            lists:foreach(fun(W) -> W ! {stream_start_headers, Norm} end, StartWaiters),
+            NewZlib = maybe_init_stream_zlib(Headers),
+            stream_owner_wait(RequestId, Buffer, Norm, [], NewZlib);
+        {http, {RequestId, stream_start, Headers, _Pid}} ->
+            Norm = normalize_headers(Headers),
+            lists:foreach(fun(W) -> W ! {stream_start_headers, Norm} end, StartWaiters),
+            NewZlib = maybe_init_stream_zlib(Headers),
+            stream_owner_wait(RequestId, Buffer, Norm, [], NewZlib);
         {http, {RequestId, stream_end, Headers}} ->
-            stream_owner_wait(RequestId, Buffer ++ [{finished, Headers}]);
+            cleanup_zlib(ZlibCtx),
+            stream_owner_wait(RequestId,
+                              Buffer ++ [{finished, normalize_headers(Headers)}],
+                              StartHeaders,
+                              StartWaiters,
+                              undefined);
         {http, {RequestId, {error, Reason}}} ->
-            %% Format here (not at delivery) so the Gleam side always
-            %% receives a binary; raw terms like {failed_connect, ...}
-            %% failed its string decode and decayed to "Unknown stream
-            %% error".
-            stream_owner_wait(RequestId, Buffer ++ [{error, format_error(Reason)}]);
-        {http, {RequestId, {{_, _, _} = StatusLine, RespHeaders, RespBody}}} ->
-            stream_owner_wait(
-                RequestId,
-                Buffer ++ full_response_messages(StatusLine, RespHeaders, RespBody)
-            );
+            cleanup_zlib(ZlibCtx),
+            stream_owner_wait(RequestId, Buffer ++ [{error, format_error(Reason)}], StartHeaders, StartWaiters, undefined);
+        {http, {RequestId, {{_HttpVersion, StatusCode, ReasonPhrase}, _Headers, Body}}} ->
+            cleanup_zlib(ZlibCtx),
+            ErrorMsg = format_complete_response_error(StatusCode, ReasonPhrase, Body),
+            stream_owner_wait(RequestId, Buffer ++ [{error, ErrorMsg}], StartHeaders, StartWaiters, undefined);
         _Other ->
-            stream_owner_wait(RequestId, Buffer)
+            stream_owner_wait(RequestId, Buffer, StartHeaders, StartWaiters, ZlibCtx)
     end.
 
 %% Handle a fetch_next request from the client
-handle_fetch_next(From, RequestId, []) ->
+handle_fetch_next(From, RequestId, [], StartHeaders, StartWaiters, ZlibCtx) ->
     %% Buffer empty - fetch next message from stream
-    case stream_owner_next_message(RequestId) of
-        {start, _Hs} ->
-            %% Got headers, skip and fetch actual data
-            handle_fetch_next_after_start(From, RequestId);
-        Msg ->
-            %% Got chunk/finished/error - deliver it
-            deliver_message(From, Msg, RequestId)
+    case stream_owner_next_message(RequestId, ZlibCtx) of
+        {start, _Hs, NewZlib} ->
+            Norm = normalize_headers(_Hs),
+            lists:foreach(fun(W) -> W ! {stream_start_headers, Norm} end, StartWaiters),
+            handle_fetch_next_after_start(From, RequestId, Norm, [], NewZlib);
+        {Msg, NewZlib} ->
+            deliver_message(From, Msg, RequestId, StartHeaders, StartWaiters, NewZlib)
     end;
-handle_fetch_next(From, RequestId, [Item | Rest]) ->
-    %% Buffer has items - deliver first one
-    deliver_message(From, Item, RequestId, Rest).
+handle_fetch_next(From, RequestId, [Item | Rest], StartHeaders, StartWaiters, ZlibCtx) ->
+    deliver_message(From, Item, RequestId, Rest, StartHeaders, StartWaiters, ZlibCtx).
 
 %% Handle fetch_next after receiving stream_start (headers)
-handle_fetch_next_after_start(From, RequestId) ->
-    case stream_owner_next_message(RequestId) of
-        {chunk, Bin} ->
+handle_fetch_next_after_start(From, RequestId, StartHeaders, StartWaiters, ZlibCtx) ->
+    case stream_owner_next_message(RequestId, ZlibCtx) of
+        {{chunk, Bin}, NewZlib} ->
             From ! {stream_chunk, Bin},
-            stream_owner_wait(RequestId, []);
-        {finished, Headers} ->
+            stream_owner_wait(RequestId, [], StartHeaders, StartWaiters, NewZlib);
+        {{finished, Headers}, _NewZlib} ->
             From ! {stream_end, Headers},
             ok;
-        {error, Reason} ->
+        {{error, Reason}, _NewZlib} ->
             From ! {stream_error, Reason},
             ok
     end.
 
-%% Deliver a message to the client (from live stream)
-deliver_message(From, {chunk, Bin}, RequestId) ->
+%% Deliver a message to the client (from live stream, with ZlibCtx)
+deliver_message(From, {chunk, Bin}, RequestId, StartHeaders, StartWaiters, ZlibCtx) ->
     From ! {stream_chunk, Bin},
-    stream_owner_wait(RequestId, []);
-deliver_message(From, {finished, Headers}, _RequestId) ->
+    stream_owner_wait(RequestId, [], StartHeaders, StartWaiters, ZlibCtx);
+deliver_message(From, {finished, Headers}, _RequestId, _StartHeaders, _StartWaiters, _ZlibCtx) ->
     From ! {stream_end, Headers},
     ok;
-deliver_message(From, {error, Reason}, _RequestId) ->
+deliver_message(From, {error, Reason}, _RequestId, _StartHeaders, _StartWaiters, _ZlibCtx) ->
     From ! {stream_error, Reason},
     ok.
 
-%% Deliver a message to the client (from buffer)
-deliver_message(From, {chunk, Bin}, RequestId, Rest) ->
+%% Deliver a message to the client (from buffer, with ZlibCtx)
+deliver_message(From, {chunk, Bin}, RequestId, Rest, StartHeaders, StartWaiters, ZlibCtx) ->
     From ! {stream_chunk, Bin},
-    stream_owner_wait(RequestId, Rest);
-deliver_message(From, {finished, Headers}, _RequestId, _Rest) ->
+    stream_owner_wait(RequestId, Rest, StartHeaders, StartWaiters, ZlibCtx);
+deliver_message(From,
+                {finished, Headers},
+                _RequestId,
+                _Rest,
+                _StartHeaders,
+                _StartWaiters,
+                _ZlibCtx) ->
     From ! {stream_end, Headers},
     ok;
-deliver_message(From, {error, Reason}, _RequestId, _Rest) ->
+deliver_message(From, {error, Reason}, _RequestId, _Rest, _StartHeaders, _StartWaiters, _ZlibCtx) ->
     From ! {stream_error, Reason},
     ok.
 
-%% Wait for the next HTTP message from httpc
-stream_owner_next_message(RequestId) ->
+normalize_headers_default(undefined) ->
+    [];
+normalize_headers_default(Headers) ->
+    Headers.
+
+%% Wait for the next HTTP message from httpc.
+%% Returns {start, Headers, NewZlibCtx} | {{chunk|finished|error, Data}, NewZlibCtx}
+stream_owner_next_message(RequestId, ZlibCtx) ->
     receive
         {http, {RequestId, stream_start, Headers}} ->
-            {start, Headers};
+            NewZlib = maybe_init_stream_zlib(Headers),
+            {start, Headers, NewZlib};
+        {http, {RequestId, stream_start, Headers, _Pid}} ->
+            NewZlib = maybe_init_stream_zlib(Headers),
+            {start, Headers, NewZlib};
         {http, {RequestId, stream, Bin}} ->
-            {chunk, Bin};
+            DecompBin = case ZlibCtx of
+                undefined -> Bin;
+                _ -> decompress_chunk(ZlibCtx, Bin)
+            end,
+            {{chunk, DecompBin}, ZlibCtx};
         {http, {RequestId, stream_end, Headers}} ->
-            {finished, Headers};
+            cleanup_zlib(ZlibCtx),
+            {{finished, normalize_headers(Headers)}, undefined};
         {http, {RequestId, {error, Reason}}} ->
-            {error, format_error(Reason)};
-        {http, {RequestId, {{_, _, _} = StatusLine, RespHeaders, RespBody}}} ->
-            case full_response_messages(StatusLine, RespHeaders, RespBody) of
-                [Single] ->
-                    Single;
-                [First | Rest] ->
-                    %% More than one synthesized message but this function
-                    %% returns exactly one: re-inject the remainder as
-                    %% httpc-shaped messages for the next receive.
-                    [self() ! resynthesize(RequestId, Msg) || Msg <- Rest],
-                    First
-            end;
+            cleanup_zlib(ZlibCtx),
+            {{error, format_error(Reason)}, undefined};
+        {http, {RequestId, {{_HttpVersion, StatusCode, ReasonPhrase}, _Headers, Body}}} ->
+            cleanup_zlib(ZlibCtx),
+            {{error, format_complete_response_error(StatusCode, ReasonPhrase, Body)}, undefined};
         _Other ->
-            stream_owner_next_message(RequestId)
-    end.
-
-resynthesize(RequestId, {chunk, Bin}) ->
-    {http, {RequestId, stream, Bin}};
-resynthesize(RequestId, {finished, Headers}) ->
-    {http, {RequestId, stream_end, Headers}};
-resynthesize(RequestId, {error, Reason}) ->
-    {http, {RequestId, {error, Reason}}}.
-
-%% httpc with {stream, self} only streams 200/206 bodies; any other
-%% response arrives whole as {http, {RequestId, {StatusLine, Headers,
-%% Body}}}. The receive loops previously dropped that tuple in their
-%% catch-all clauses, hanging the stream until the caller's timeout.
-%% Convert it to equivalent stream messages: a whole 2xx becomes body +
-%% end, anything else a descriptive error.
-full_response_messages({_Version, Status, _Phrase}, RespHeaders, RespBody)
-  when Status >= 200, Status < 300 ->
-    [{chunk, ensure_binary(RespBody)}, {finished, RespHeaders}];
-full_response_messages(StatusLine, _RespHeaders, RespBody) ->
-    [{error, http_status_error(StatusLine, RespBody)}].
-
-http_status_error({_Version, Status, Phrase}, RespBody) ->
-    iolist_to_binary(
-        io_lib:format("HTTP ~b ~ts: ~ts",
-                      [Status, ensure_binary(Phrase), body_snippet(RespBody)])
-    ).
-
-%% Full-response bodies arrive as charlists (streaming mode sets no
-%% {body_format, binary}); streamed chunks are already binaries.
-ensure_binary(Bin) when is_binary(Bin) ->
-    Bin;
-ensure_binary(Chars) when is_list(Chars) ->
-    case unicode:characters_to_binary(Chars) of
-        Bin when is_binary(Bin) -> Bin;
-        _ -> iolist_to_binary(io_lib:format("~p", [Chars]))
-    end;
-ensure_binary(Other) ->
-    iolist_to_binary(io_lib:format("~p", [Other])).
-
-body_snippet(RespBody) ->
-    Bin = ensure_binary(RespBody),
-    try string:length(Bin) =< 500 of
-        true -> Bin;
-        false -> [string:slice(Bin, 0, 500), <<"..."/utf8>>]
-    catch
-        _:_ -> <<"(unreadable body)"/utf8>>
+            stream_owner_next_message(RequestId, ZlibCtx)
     end.
 
 %% Ensure an Erlang application is started
@@ -316,13 +320,142 @@ to_headers(Hs) when is_list(Hs) ->
 to_headers(Other) ->
     Other.
 
+%% Inject Accept-Encoding: gzip, deflate unless the user already set one
+maybe_add_accept_encoding(Headers) ->
+    HasAcceptEncoding = lists:any(
+        fun({K, _V}) ->
+            string:lowercase(to_list(K)) =:= "accept-encoding"
+        end, Headers),
+    case HasAcceptEncoding of
+        true -> Headers;
+        false -> Headers ++ [{"Accept-Encoding", "gzip, deflate"}]
+    end.
+
+%% Get Content-Encoding header value (lowercase, trimmed)
+get_content_encoding(Headers) ->
+    Val = lists:foldl(
+        fun({K, V}, Acc) ->
+            case string:lowercase(to_list(K)) of
+                "content-encoding" -> string:trim(string:lowercase(to_list(V)));
+                _ -> Acc
+            end
+        end, "", Headers),
+    Val.
+
+%% Remove a header by name (case-insensitive)
+remove_header(Name, Headers) ->
+    NormName = string:lowercase(Name),
+    lists:filter(
+        fun({K, _V}) -> string:lowercase(to_list(K)) =/= NormName end,
+        Headers).
+
+%% Decompress a sync response body based on Content-Encoding.
+%% Returns {DecompressedBody, CleanedHeaders}.
+maybe_decompress_response(Body, Headers) ->
+    Encoding = get_content_encoding(Headers),
+    case Encoding of
+        "gzip" ->
+            try_decompress(fun() -> zlib:gunzip(iolist_to_binary(Body)) end,
+                           Body, Headers);
+        "deflate" ->
+            try_decompress(fun() -> zlib:uncompress(iolist_to_binary(Body)) end,
+                           Body, Headers);
+        "identity" ->
+            {Body, Headers};
+        "" ->
+            {Body, Headers};
+        Other ->
+            io:format("WARNING: unrecognized Content-Encoding, passing through raw bytes: ~s~n",
+                      [to_binary(Other)]),
+            {Body, Headers}
+    end.
+
+try_decompress(DecompressFn, OrigBody, Headers) ->
+    try
+        Decompressed = DecompressFn(),
+        {Decompressed, remove_header("content-encoding", Headers)}
+    catch
+        _:_ ->
+            io:format("WARNING: decompression failed, passing through raw bytes~n"),
+            {OrigBody, Headers}
+    end.
+
+%% Detect stream encoding from headers.
+%% Returns {gzip, 31} | {deflate, 15} | none
+detect_stream_encoding(Headers) ->
+    Encoding = get_content_encoding(Headers),
+    case Encoding of
+        "gzip" -> {gzip, 31};
+        "deflate" -> {deflate, 15};
+        "" -> none;
+        "identity" -> none;
+        Other ->
+            io:format("WARNING: unrecognized Content-Encoding for stream, passing through raw bytes: ~s~n",
+                      [to_binary(Other)]),
+            none
+    end.
+
+%% Initialize a zlib inflate context for streaming decompression
+init_zlib_context(WindowBits) ->
+    Z = zlib:open(),
+    ok = zlib:inflateInit(Z, WindowBits),
+    Z.
+
+%% Initialize streaming zlib context from headers if Content-Encoding is gzip/deflate
+maybe_init_stream_zlib(Headers) ->
+    case detect_stream_encoding(Headers) of
+        {_Enc, WindowBits} -> init_zlib_context(WindowBits);
+        none -> undefined
+    end.
+
+%% Decompress a chunk using an existing zlib context
+decompress_chunk(ZlibCtx, Chunk) ->
+    iolist_to_binary(zlib:inflate(ZlibCtx, Chunk)).
+
+%% Clean up a zlib context
+cleanup_zlib(undefined) -> ok;
+cleanup_zlib(ZlibCtx) ->
+    try zlib:inflateEnd(ZlibCtx) catch _:_ -> ok end,
+    try zlib:close(ZlibCtx) catch _:_ -> ok end,
+    ok.
+
+%% Extract Content-Type header value (case-insensitive) and strip it from headers.
+%%
+%% httpc's request tuple for entity-body requests is `{Url, Headers, ContentType, Body}`.
+%% If we leave a `content-type` header in `Headers` while also providing `ContentType`,
+%% we can end up sending duplicate/conflicting headers. We therefore:
+%% - Prefer an explicitly provided Content-Type header value (last one wins)
+%% - Remove all Content-Type headers from the outgoing Headers list
+extract_content_type_and_strip_headers(Headers) when is_list(Headers) ->
+    {ContentType, RevHeaders} =
+        lists:foldl(fun({K, V}, {Ct0, Acc}) ->
+                       KeyLower = string:lowercase(to_list(K)),
+                       case KeyLower of
+                           "content-type" -> {to_list(V), Acc};
+                           _ -> {Ct0, [{to_list(K), to_list(V)} | Acc]}
+                       end
+                    end,
+                    {undefined, []},
+                    Headers),
+    {ContentType, lists:reverse(RevHeaders)};
+extract_content_type_and_strip_headers(Other) ->
+    {undefined, Other}.
+
 %% Build the request tuple for httpc
 build_req(Url, Headers, Body) when is_binary(Body), byte_size(Body) =:= 0 ->
     {Url, Headers};
 build_req(Url, Headers, Body) when Body =:= undefined; Body =:= <<>> ->
     {Url, Headers};
 build_req(Url, Headers, Body) ->
-    {Url, Headers, to_list("application/json"), Body}.
+    {HeaderContentType, StrippedHeaders} = extract_content_type_and_strip_headers(Headers),
+    ContentType =
+        case HeaderContentType of
+            undefined ->
+                to_list("application/octet-stream");
+            _ ->
+                HeaderContentType
+        end,
+    {Url, StrippedHeaders, ContentType, Body}.
 
 %% ============================================================================
 %% Message-Based Streaming (Thin Wrapper)
@@ -332,7 +465,7 @@ build_req(Url, Headers, Body) ->
 %%
 %% Initiates a streaming HTTP request where messages are sent directly to the caller's
 %% process mailbox. This is used for OTP actor integration where messages arrive
-%% asynchronously without needing to call `fetch_next/2`. The request ID is returned
+%% asynchronously without needing to call `fetch_next`. The request ID is returned
 %% as a string for type-safe handling in Gleam.
 %%
 %% ## Parameters
@@ -347,7 +480,7 @@ build_req(Url, Headers, Body) ->
 %% ## Returns
 %%
 %% - `{ok, StringId}`: Stream started successfully, `StringId` is a string representation
-%%   of the httpc request ID (use with `cancel_stream_by_string/1`)
+%%   of the httpc request ID (use with `cancel_stream_by_string`)
 %% - `{error, Reason}`: Failed to start stream (connection error, invalid URL, etc.)
 %%
 %% ## Examples
@@ -360,7 +493,7 @@ build_req(Url, Headers, Body) ->
 %% ## Notes
 %%
 %% - Messages arrive as `{http, {HttpcRef, Tag, Data}}` tuples in the process mailbox
-%% - Use `decode_stream_message_for_selector/1` for OTP selector integration
+%% - Use `decode_stream_message_for_selector` for OTP selector integration
 %% - Stores bidirectional mapping: `StringId <-> HttpcRef` for cancellation
 %% - String ID is derived from httpc ref's string representation (guaranteed unique)
 %% - Ensures `ssl` and `inets` applications are started before making requests
@@ -369,10 +502,8 @@ request_stream_messages(Method, Url, Headers, Body, _ReceiverPid, TimeoutMs) ->
     ok = ensure_started(inets),
     ok = configure_httpc(),
 
-    ensure_ref_mapping_table(),
-
     NUrl = to_list(Url),
-    NHeaders = to_headers(Headers),
+    NHeaders = maybe_add_accept_encoding(to_headers(Headers)),
     Req = build_req(NUrl, NHeaders, Body),
 
     HttpOpts = [{timeout, TimeoutMs}, {connect_timeout, 15000}, {autoredirect, true}],
@@ -393,7 +524,7 @@ request_stream_messages(Method, Url, Headers, Body, _ReceiverPid, TimeoutMs) ->
 %%
 %% Cancels an active streaming HTTP request using the httpc request reference directly.
 %% This is a legacy function that takes the raw httpc ref. For new code, use
-%% `cancel_stream_by_string/1` which works with the type-safe string IDs.
+%% `cancel_stream_by_string` which works with the type-safe string IDs.
 %%
 %% ## Parameters
 %%
@@ -406,7 +537,7 @@ request_stream_messages(Method, Url, Headers, Body, _ReceiverPid, TimeoutMs) ->
 %% ## Notes
 %%
 %% - This function is kept for backward compatibility
-%% - Prefer `cancel_stream_by_string/1` for type-safe cancellation
+%% - Prefer `cancel_stream_by_string` for type-safe cancellation
 %% - After cancellation, no more messages will be sent to the receiver process
 %% - Safe to call multiple times on the same request ID
 cancel_stream(RequestId) ->
@@ -416,12 +547,12 @@ cancel_stream(RequestId) ->
 %% @doc Cancel a streaming request by string ID
 %%
 %% Cancels an active streaming HTTP request using the string ID returned from
-%% `request_stream_messages/6`. Looks up the corresponding httpc reference from
+%% `request_stream_messages`. Looks up the corresponding httpc reference from
 %% the internal mapping table and cancels the request.
 %%
 %% ## Parameters
 %%
-%% - `StringId`: The string request ID returned from `request_stream_messages/6`
+%% - `StringId`: The string request ID returned from `request_stream_messages`
 %%
 %% ## Returns
 %%
@@ -489,26 +620,35 @@ cancel_stream_by_string(StringId) ->
 %%
 %% - Blocks until a message arrives or timeout expires
 %% - Headers are normalized to binary tuples for consistent Gleam decoding
-%% - RequestId is the httpc reference (use `decode_stream_message_for_selector/1` for string IDs)
+%% - RequestId is the httpc reference (use `decode_stream_message_for_selector` for string IDs)
 %% - Handles both `{http, {Ref, stream_start, Headers}}` and `{http, {Ref, stream_start, Headers, Pid}}` formats
 %% - Error reasons are formatted as binaries for Gleam compatibility
 receive_stream_message(TimeoutMs) ->
     receive
         {http, {RequestId, stream_start, Headers}} ->
+            StringId = get_or_create_string_id(RequestId),
+            maybe_store_stream_zlib(StringId, Headers),
             {stream_start, RequestId, normalize_headers(Headers)};
         {http, {RequestId, stream_start, Headers, _Pid}} ->
-            %% Some httpc versions include pid
+            StringId = get_or_create_string_id(RequestId),
+            maybe_store_stream_zlib(StringId, Headers),
             {stream_start, RequestId, normalize_headers(Headers)};
         {http, {RequestId, stream, Data}} ->
-            {chunk, RequestId, Data};
+            StringId = get_or_create_string_id(RequestId),
+            DecompData = maybe_decompress_stream_chunk(StringId, Data),
+            {chunk, RequestId, DecompData};
         {http, {RequestId, stream_end, Headers}} ->
+            StringId = get_or_create_string_id(RequestId),
+            cleanup_stream_zlib(StringId),
             {stream_end, RequestId, normalize_headers(Headers)};
         {http, {RequestId, {error, Reason}}} ->
+            StringId = get_or_create_string_id(RequestId),
+            cleanup_stream_zlib(StringId),
             {stream_error, RequestId, format_error(Reason)};
-        {http, {RequestId, {{_, _, _} = StatusLine, _RespHeaders, RespBody}}} ->
-            %% A whole (non-streamed) response on the message path is
-            %% always delivered as an error: 200/206 would have streamed.
-            {stream_error, RequestId, http_status_error(StatusLine, RespBody)}
+        {http, {RequestId, {{_HttpVersion, StatusCode, ReasonPhrase}, _Headers, Body}}} ->
+            StringId = get_or_create_string_id(RequestId),
+            cleanup_stream_zlib(StringId),
+            {stream_error, RequestId, format_complete_response_error(StatusCode, ReasonPhrase, Body)}
     after TimeoutMs ->
         timeout
     end.
@@ -560,44 +700,46 @@ decode_stream_message_for_selector({http, InnerMessage}) ->
     case InnerMessage of
         {HttpcRef, stream_start, Headers} ->
             StringId = get_or_create_string_id(HttpcRef),
+            maybe_store_stream_zlib(StringId, Headers),
             {stream_start, StringId, normalize_headers(Headers)};
         {HttpcRef, stream_start, Headers, _Pid} ->
             StringId = get_or_create_string_id(HttpcRef),
+            maybe_store_stream_zlib(StringId, Headers),
             {stream_start, StringId, normalize_headers(Headers)};
         {HttpcRef, stream, Data} ->
             StringId = get_or_create_string_id(HttpcRef),
-            {chunk, StringId, Data};
+            DecompData = maybe_decompress_stream_chunk(StringId, Data),
+            {chunk, StringId, DecompData};
         {HttpcRef, stream_end, Headers} ->
             StringId = get_or_create_string_id(HttpcRef),
-            %% Stream ended - clean up ref mapping
+            cleanup_stream_zlib(StringId),
             remove_ref_mapping(StringId),
             {stream_end, StringId, normalize_headers(Headers)};
         {HttpcRef, {error, Reason}} ->
             StringId = get_or_create_string_id(HttpcRef),
-            %% Stream errored - clean up ref mapping
+            cleanup_stream_zlib(StringId),
             remove_ref_mapping(StringId),
             {stream_error, StringId, format_error(Reason)};
-        {HttpcRef, {{_, _, _} = StatusLine, _RespHeaders, RespBody}} ->
-            %% A whole (non-streamed) response: 200/206 would have
-            %% streamed, so surface it as an error with the status.
+        {HttpcRef, {{_HttpVersion, StatusCode, ReasonPhrase}, _Headers, Body}} ->
             StringId = get_or_create_string_id(HttpcRef),
+            cleanup_stream_zlib(StringId),
             remove_ref_mapping(StringId),
-            {stream_error, StringId, http_status_error(StatusLine, RespBody)};
+            {stream_error, StringId, format_complete_response_error(StatusCode, ReasonPhrase, Body)};
         _ ->
             error(badarg)
     end.
 
-%% Get string ID for httpc ref, creating mapping if needed
-%% This handles the case where selector receives messages before we stored the mapping
+%% Get string ID for httpc ref, creating mapping if needed.
+%% This handles the case where selector receives messages before we stored
+%% the mapping.
 get_or_create_string_id(HttpcRef) ->
     case lookup_string_by_ref(HttpcRef) of
         {some, StringId} ->
             StringId;
         none ->
-            %% First time seeing this ref - create mapping
-            StringId = ref_to_string(HttpcRef),
-            store_ref_mapping(StringId, HttpcRef),
-            StringId
+            NewId = ref_to_string(HttpcRef),
+            store_ref_mapping(NewId, HttpcRef),
+            NewId
     end.
 
 %% @doc Normalize HTTP headers to binary tuples for Gleam decoding
@@ -644,7 +786,27 @@ to_binary(Bin) when is_binary(Bin) ->
 to_binary(List) when is_list(List) ->
     unicode:characters_to_binary(List);
 to_binary(Other) ->
-    iolist_to_binary(io_lib:format("~p", [Other])).
+    ensure_utf8_binary(io_lib:format("~p", [Other])).
+
+%% Guarantee a valid UTF-8 binary from any input.
+%% Handles binaries (validates UTF-8, falls back to Latin-1 reinterpretation),
+%% charlists from io_lib:format (unicode codepoints), and arbitrary terms.
+ensure_utf8_binary(Bin) when is_binary(Bin) ->
+    case unicode:characters_to_binary(Bin, utf8, utf8) of
+        Result when is_binary(Result) -> Result;
+        _ ->
+            case unicode:characters_to_binary(Bin, latin1, utf8) of
+                Result2 when is_binary(Result2) -> Result2;
+                _ -> iolist_to_binary(io_lib:format("~w", [Bin]))
+            end
+    end;
+ensure_utf8_binary(List) when is_list(List) ->
+    case unicode:characters_to_binary(List) of
+        Result when is_binary(Result) -> Result;
+        _ -> iolist_to_binary(io_lib:format("~w", [List]))
+    end;
+ensure_utf8_binary(Other) ->
+    iolist_to_binary(io_lib:format("~w", [Other])).
 
 %% @doc Make a synchronous (blocking) HTTP request
 %%
@@ -663,14 +825,17 @@ to_binary(Other) ->
 %%
 %% ## Returns
 %%
-%% - `{ok, Body}`: Successfully received complete response body as a binary
-%% - `{error, Reason}`: Error occurred (connection failure, timeout, HTTP error, etc.)
+%% - `{ok, {StatusCode, ResponseHeaders, Body}}`:
+%%     - `StatusCode` is an integer HTTP status code (e.g. 200, 404)
+%%     - `ResponseHeaders` is a list of `{Name, Value}` tuples as binaries
+%%     - `Body` is the complete response body as a binary
+%% - `{error, Reason}`: Error occurred (connection failure, timeout, etc.)
 %%   where `Reason` is a binary error message
 %%
 %% ## Examples
 %%
 %% ```erlang
-%% {ok, ResponseBody} = request_sync(get, "https://api.example.com/users", [], <<>>, 30000),
+%% {ok, {Status, Headers, Body}} = request_sync(get, "https://api.example.com/users", [], <<>>, 30000),
 %% ```
 %%
 %% ## Notes
@@ -687,7 +852,7 @@ request_sync(Method, Url, Headers, Body, TimeoutMs) ->
     ok = configure_httpc(),
 
     NUrl = to_list(Url),
-    NHeaders = to_headers(Headers),
+    NHeaders = maybe_add_accept_encoding(to_headers(Headers)),
     Req = build_req(NUrl, NHeaders, Body),
 
     %% Use synchronous mode WITHOUT streaming - this is what send() should use
@@ -695,37 +860,27 @@ request_sync(Method, Url, Headers, Body, TimeoutMs) ->
     Opts = [{sync, true}, {body_format, binary}],
 
     case httpc:request(Method, Req, HttpOpts, Opts) of
-        {ok, {{_Version, _StatusCode, _ReasonPhrase}, _Headers, ResponseBody}} ->
-            {ok, ResponseBody};
+        {ok, {{_Version, StatusCode, _ReasonPhrase}, ResponseHeaders, ResponseBody}} ->
+            {DecompressedBody, CleanHeaders} =
+                maybe_decompress_response(ResponseBody, ResponseHeaders),
+            {ok, {StatusCode, normalize_headers(CleanHeaders), DecompressedBody}};
         {error, Reason} ->
             {error, format_error(Reason)}
     end.
 
-%% Like request_sync/5 but preserves the response status code.
-request_sync_response(Method, Url, Headers, Body, TimeoutMs) ->
-    ok = ensure_started(ssl),
-    ok = ensure_started(inets),
-    ok = configure_httpc(),
-
-    NUrl = to_list(Url),
-    NHeaders = to_headers(Headers),
-    Req = build_req(NUrl, NHeaders, Body),
-
-    HttpOpts = [{timeout, TimeoutMs}, {connect_timeout, 15000}, {autoredirect, true}],
-    Opts = [{sync, true}, {body_format, binary}],
-
-    case httpc:request(Method, Req, HttpOpts, Opts) of
-        {ok, {{_Version, StatusCode, _ReasonPhrase}, _Headers, ResponseBody}} ->
-            {ok, {StatusCode, ResponseBody}};
-        {error, Reason} ->
-            {error, format_error(Reason)}
-    end.
-
-format_error(Reason) when is_binary(Reason) ->
-    %% Already a formatted message (e.g. a re-injected synthesized error).
-    Reason;
 format_error(Reason) ->
-    iolist_to_binary(io_lib:format("~p", [Reason])).
+    ensure_utf8_binary(io_lib:format("~p", [Reason])).
+
+%% Format error for a complete (non-streaming) HTTP response from httpc.
+%% httpc sends this instead of stream_start/stream/stream_end when the upstream
+%% returns a non-streaming response (typically 4xx/5xx errors).
+format_complete_response_error(StatusCode, ReasonPhrase, Body) ->
+    <<(<<"HTTP ">>)/binary,
+      (integer_to_binary(StatusCode))/binary,
+      (<<" ">>)/binary,
+      (ensure_utf8_binary(ReasonPhrase))/binary,
+      (<<": ">>)/binary,
+      (ensure_utf8_binary(Body))/binary>>.
 
 %% Format exit reason from owner process death
 %%
@@ -739,7 +894,7 @@ format_exit_reason(normal) ->
     <<"Stream process exited normally">>;
 format_exit_reason(Reason) ->
     %% Some other exit reason - format it for debugging
-    iolist_to_binary(io_lib:format("Stream process died: ~p", [Reason])).
+    ensure_utf8_binary(io_lib:format("Stream process died: ~p", [Reason])).
 
 %% =============================================================================
 %% ETS Functions for Stream Recorder State Management
@@ -761,7 +916,7 @@ format_exit_reason(Reason) ->
 %%
 %% ## Notes
 %%
-%% - Converts binary name to atom using `binary_to_atom/2`
+%% - Converts binary name to atom using `binary_to_atom`
 %% - Returns `false` if conversion fails or table doesn't exist
 %% - Used internally for idempotent table creation
 ets_table_exists(Name) ->
@@ -800,7 +955,7 @@ ets_table_exists(Name) ->
 %%
 %% ## Notes
 %%
-%% - Converts binary name to atom using `binary_to_atom/2`
+%% - Converts binary name to atom using `binary_to_atom`
 %% - Options should include `named_table` if you want to reference by name later
 %% - Used internally for creating recorder and ref mapping tables
 ets_new(Name, Options) ->
@@ -832,9 +987,9 @@ ets_new(Name, Options) ->
 %% - Overwrites existing entry if key already exists
 %% - Used internally by message-based streaming recorder
 %% - Chunks are stored in reverse order (prepended) and reversed when stream completes
-ets_insert(TableName, Key, Recorder, RecordedRequest, Chunks, LastChunkTime) ->
+ets_insert(TableName, Key, Recorder, RecordedRequest, Headers, Chunks, LastChunkTime) ->
     TableAtom = binary_to_atom(TableName, utf8),
-    Value = {Recorder, RecordedRequest, Chunks, LastChunkTime},
+    Value = {Recorder, RecordedRequest, Headers, Chunks, LastChunkTime},
     ets:insert(TableAtom, {Key, Value}),
     nil.
 
@@ -873,12 +1028,13 @@ ets_lookup(TableName, Key) ->
     try
         TableAtom = binary_to_atom(TableName, utf8),
         case ets:lookup(TableAtom, Key) of
-            [{Key, {Recorder, RecordedRequest, Chunks, LastChunkTime}}] ->
+            [{Key, {Recorder, RecordedRequest, Headers, Chunks, LastChunkTime}}] ->
                 %% Return as Gleam MessageStreamRecorderState constructor
                 State =
                     {message_stream_recorder_state,
                      Recorder,
                      RecordedRequest,
+                     Headers,
                      Chunks,
                      LastChunkTime},
                 {some, State};
@@ -932,26 +1088,14 @@ ets_delete(TableName, Key) ->
 %% Table for mapping string IDs to httpc refs (for cancellation)
 -define(REF_MAPPING_TABLE, dream_http_client_ref_mapping).
 
-%% Ensure ref mapping table exists (created on first use)
-ensure_ref_mapping_table() ->
-    case ets:info(?REF_MAPPING_TABLE) of
-        undefined ->
-            ets:new(?REF_MAPPING_TABLE, [set, public, named_table]),
-            ok;
-        _ ->
-            ok
-    end.
-
 %% Convert httpc ref to unique string ID
 %% Uses the ref's string representation which is guaranteed unique
 ref_to_string(Ref) ->
-    list_to_binary(io_lib:format("~p", [Ref])).
+    ensure_utf8_binary(io_lib:format("~p", [Ref])).
 
 %% Store bidirectional mapping: string <-> ref
 store_ref_mapping(StringId, HttpcRef) ->
-    ensure_ref_mapping_table(),
     ets:insert(?REF_MAPPING_TABLE, {StringId, HttpcRef}),
-    %% Also store reverse mapping for message translation
     ets:insert(?REF_MAPPING_TABLE, {HttpcRef, StringId}),
     ok.
 
@@ -971,6 +1115,37 @@ lookup_string_by_ref(HttpcRef) ->
             {some, StringId};
         [] ->
             none
+    end.
+
+%% Store a zlib context in ETS for message-based streaming decompression
+maybe_store_stream_zlib(StringId, Headers) ->
+    case detect_stream_encoding(Headers) of
+        {_Enc, WindowBits} ->
+            Z = init_zlib_context(WindowBits),
+            ets:insert(?REF_MAPPING_TABLE, {{zlib, StringId}, Z}),
+            ok;
+        none ->
+            ok
+    end.
+
+%% Decompress a chunk using ETS-stored zlib context
+maybe_decompress_stream_chunk(StringId, Data) ->
+    case ets:lookup(?REF_MAPPING_TABLE, {zlib, StringId}) of
+        [{{zlib, StringId}, Z}] ->
+            decompress_chunk(Z, Data);
+        [] ->
+            Data
+    end.
+
+%% Clean up ETS-stored zlib context
+cleanup_stream_zlib(StringId) ->
+    case ets:lookup(?REF_MAPPING_TABLE, {zlib, StringId}) of
+        [{{zlib, StringId}, Z}] ->
+            cleanup_zlib(Z),
+            ets:delete(?REF_MAPPING_TABLE, {zlib, StringId}),
+            ok;
+        [] ->
+            ok
     end.
 
 %% Remove both mappings (cleanup after stream ends)

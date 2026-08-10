@@ -1,5 +1,5 @@
 //// `BytesTree` is a type used for efficiently building binary content to be
-//// written to a file or a socket. Internally it is represented as tree so to
+//// written to a file or a socket. Internally it is represented as a tree so to
 //// append or prepend to a bytes tree is a constant time operation that
 //// allocates a new node in the tree without copying any of the content. When
 //// writing to an output stream the tree is traversed and the content is sent
@@ -56,7 +56,10 @@ pub fn append(to first: BytesTree, suffix second: BitArray) -> BytesTree {
 ///
 /// Runs in constant time.
 ///
-pub fn prepend_tree(to second: BytesTree, prefix first: BytesTree) -> BytesTree {
+pub fn prepend_tree(
+  to second: BytesTree,
+  prefix first: BytesTree,
+) -> BytesTree {
   append_tree(first, second)
 }
 
@@ -159,7 +162,10 @@ pub fn to_bit_array(tree: BytesTree) -> BitArray {
   |> bit_array.concat
 }
 
-fn to_list(stack: List(List(BytesTree)), acc: List(BitArray)) -> List(BitArray) {
+fn to_list(
+  stack: List(List(BytesTree)),
+  acc: List(BitArray),
+) -> List(BitArray) {
   case stack {
     [] -> acc
 

@@ -1,1 +1,3 @@
--record(worker, {shutdown_ms :: integer()}).
+-record(worker, {
+    shutdown_ms :: integer()
+}).

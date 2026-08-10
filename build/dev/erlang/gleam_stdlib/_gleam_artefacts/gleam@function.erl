@@ -1,7 +1,7 @@
 -module(gleam@function).
 -compile([no_auto_import, nowarn_unused_vars, nowarn_unused_function, nowarn_nomatch, inline]).
 -define(FILEPATH, "src/gleam/function.gleam").
--export([identity/1, tap/2]).
+-export([identity/1]).
 
 -if(?OTP_RELEASE >= 27).
 -define(MODULEDOC(Str), -moduledoc(Str)).
@@ -13,18 +13,6 @@
 
 -file("src/gleam/function.gleam", 3).
 ?DOC(" Takes a single argument and always returns its input value.\n").
--spec identity(CLC) -> CLC.
+-spec identity(CLW) -> CLW.
 identity(X) ->
     X.
-
--file("src/gleam/function.gleam", 13).
-?DOC(
-    " Takes an argument and a single function, calls that function with that\n"
-    " argument and returns that argument instead of the function return value.\n"
-    "\n"
-    " Useful for running synchronous side effects in a pipeline.\n"
-).
--spec tap(CLD, fun((CLD) -> any())) -> CLD.
-tap(Arg, Effect) ->
-    Effect(Arg),
-    Arg.

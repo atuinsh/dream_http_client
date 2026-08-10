@@ -51,19 +51,19 @@
 
 -type erlang_start_flags() :: any().
 
--type erlang_start_flag(GOE) :: {strategy, strategy()} |
+-type erlang_start_flag(GMZ) :: {strategy, strategy()} |
     {intensity, integer()} |
     {period, integer()} |
     {auto_shutdown, auto_shutdown()} |
-    {gleam_phantom, GOE}.
+    {gleam_phantom, GMZ}.
 
 -type erlang_child_spec() :: any().
 
--type erlang_child_spec_property(GOF) :: {id, integer()} |
+-type erlang_child_spec_property(GNA) :: {id, integer()} |
     {start,
         {gleam@erlang@atom:atom_(),
             gleam@erlang@atom:atom_(),
-            list(fun(() -> {ok, gleam@otp@actor:started(GOF)} |
+            list(fun(() -> {ok, gleam@otp@actor:started(GNA)} |
                 {error, gleam@otp@actor:start_error()}))}} |
     {restart, gleam@otp@supervision:restart()} |
     {significant, boolean()} |
@@ -149,7 +149,7 @@ convert_child(Child, Id) ->
     " The supervisor will be linked to the parent process that calls this\n"
     " function.\n"
     "\n"
-    " If any child fails to start the supevisor first terminates all already\n"
+    " If any child fails to start the supervisor first terminates all already\n"
     " started child processes with reason shutdown and then terminate itself and\n"
     " returns an error.\n"
 ).
@@ -180,10 +180,10 @@ start(Builder) ->
 ?DOC(
     " Create a `ChildSpecification` that adds this supervisor as the child of\n"
     " another, making it fault tolerant and part of the application's supervision\n"
-    " tree. You should prefer to starting unsupervised supervisors with the\n"
+    " tree. You should prefer this to starting unsupervised supervisors with the\n"
     " `start` function.\n"
     "\n"
-    " If any child fails to start the supevisor first terminates all already\n"
+    " If any child fails to start the supervisor first terminates all already\n"
     " started child processes with reason shutdown and then terminate itself and\n"
     " returns an error.\n"
 ).

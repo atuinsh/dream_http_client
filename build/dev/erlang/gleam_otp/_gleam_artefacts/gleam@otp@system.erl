@@ -70,7 +70,7 @@ suspend(Pid) ->
 
 -file("src/gleam/otp/system.gleam", 92).
 ?DOC(
-    " Request a suspended OTP compatible process to result, causing it to handle\n"
+    " Request a suspended OTP compatible process to resume, causing it to handle\n"
     " all messages rather than only system messages.\n"
     "\n"
     " For more information see the [Erlang documentation][1].\n"

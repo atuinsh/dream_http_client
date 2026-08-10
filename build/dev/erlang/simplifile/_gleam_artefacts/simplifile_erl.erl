@@ -20,19 +20,17 @@
     delete_directory/1,
     file_info/1,
     link_info/1,
-    is_directory/1,
-    is_file/1,
-    is_symlink/1,
     read_bits/1,
     read_directory/1,
     rename_file/2,
     set_permissions_octal/2,
-    write_bits/2
+    write_bits/2,
+    touch/1
 ]).
 
 -include_lib("kernel/include/file.hrl").
 
-%% A macro for checking whether the error returned is one of the atoms for a posixe error.
+%% A macro for checking whether the error returned is one of the atoms for a posix error.
 -define(is_posix_error(Error),
         Error =:= eacces
         orelse Error =:= eagain
@@ -91,7 +89,9 @@ posix_result(Result) ->
         {ok, Value} ->
             {ok, Value};
         {error, Reason} when ?is_posix_error(Reason) ->
-            {error, Reason}
+            {error, Reason};
+        {error, Reason} ->
+            {error, {unknown, string:uppercase(atom_to_binary(Reason))}}
     end.
 
 %% Read the binary contents of a file
@@ -101,20 +101,20 @@ read_bits(Filename) ->
 %% Write bytes to a file
 write_bits(Filename, Contents) ->
     case bit_size(Contents) rem 8 of
-        0 -> posix_result(file:write_file(Filename, Contents));
+        0 -> posix_result(file:write_file(Filename, Contents, [raw]));
         _ -> {error, einval}
     end.
 
 %% Append bytes to a file
 append_bits(Filename, Contents) ->
     case bit_size(Contents) rem 8 of
-        0 -> posix_result(file:write_file(Filename, Contents, [append]));
+        0 -> posix_result(file:write_file(Filename, Contents, [append, raw]));
         _ -> {error, einval}
     end.
 
 %% Delete the file at the given path
 delete_file(Filename) ->
-    posix_result(file:delete(Filename)).
+    posix_result(file:delete(Filename, [raw])).
 
 %% Create a directory at the given path. Missing parent directories are not created.
 create_directory(Dir) ->
@@ -157,86 +157,44 @@ rename_file(Source, Destination) ->
 set_permissions_octal(Filename, Permissions) ->
     posix_result(file:change_mode(Filename, Permissions)).
 
-is_directory(Path) ->
-    case file:read_file_info(Path) of
-        {ok, FileInfo} ->
-            case FileInfo#file_info.type of
-                directory ->
-                    {ok, true};
-                _ ->
-                    {ok, false}
-            end;
-        {error, enoent} ->
-            {ok, false};
-        {error, Reason} ->
-            posix_result({error, Reason})
-    end.
-
-is_file(Path) ->
-    case file:read_file_info(Path) of
-        {ok, FileInfo} ->
-            case FileInfo#file_info.type of
-                regular ->
-                    {ok, true};
-                _ ->
-                    {ok, false}
-            end;
-        {error, enoent} ->
-            {ok, false};
-        {error, Reason} ->
-            posix_result({error, Reason})
-    end.
-
-is_symlink(Path) ->
-    case file:read_link_info(Path) of
-        {ok, FileInfo} ->
-            case FileInfo#file_info.type of
-                symlink ->
-                    {ok, true};
-                _ ->
-                    {ok, false}
-            end;
-        {error, enoent} ->
-            {ok, false};
-        {error, Reason} ->
-            posix_result({error, Reason})
-    end.
-
-file_info_result(Result) ->
-    case Result of
-        {ok,
-         {file_info,
-          Size,
-          _Type,
-          _Access,
-          Atime,
-          Mtime,
-          Ctime,
-          Mode,
-          Links,
-          MajorDevice,
-          _MinorDevice,
-          Inode,
-          Uid,
-          Gid}} ->
-            {ok,
-             {file_info,
-              Size,
-              Mode,
-              Links,
-              Inode,
-              Uid,
-              Gid,
-              MajorDevice,
-              Atime,
-              Mtime,
-              Ctime}};
-        {error, Reason} when ?is_posix_error(Reason) ->
-            Result
-    end.
+    %% For information on the file_info record refer to
+    %% https://www.erlang.org/doc/apps/kernel/file.html#t:file_info/0
+    file_info_result(Result) ->
+        case Result of
+            {ok, FileInfo} when is_record(FileInfo, file_info) ->
+                {ok, {file_info, 
+                    FileInfo#file_info.size,
+                    FileInfo#file_info.mode,
+                    FileInfo#file_info.links,
+                    FileInfo#file_info.inode,
+                    FileInfo#file_info.uid,
+                    FileInfo#file_info.gid,
+                    FileInfo#file_info.major_device,
+                    FileInfo#file_info.atime,
+                    FileInfo#file_info.mtime,
+                    FileInfo#file_info.ctime
+                }};
+            {error, Reason} when ?is_posix_error(Reason) ->
+                {error, Reason}
+        end.
 
 file_info(Filename) ->
     file_info_result(file:read_file_info(Filename, [{time, posix}])).
 
 link_info(Filename) ->
     file_info_result(file:read_link_info(Filename, [{time, posix}])).
+
+%% Mimics the unix touch command: creates a file if it doesn't exist,
+%% and updates the access and modification times to now.
+touch(Filename) ->
+    Now = erlang:universaltime(),
+    case file:read_file_info(Filename) of
+        {ok, _} ->
+            %% File exists, update times
+            posix_result(file:change_time(Filename, Now, Now));
+        {error, enoent} ->
+            %% File doesn't exist, create it (times are set to now automatically)
+            posix_result(file:write_file(Filename, <<>>, [raw]));
+        {error, Reason} ->
+            posix_result({error, Reason})
+    end.

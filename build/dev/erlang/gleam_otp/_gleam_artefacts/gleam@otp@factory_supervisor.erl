@@ -1,8 +1,8 @@
 -module(gleam@otp@factory_supervisor).
 -compile([no_auto_import, nowarn_unused_vars, nowarn_unused_function, nowarn_nomatch, inline]).
 -define(FILEPATH, "src/gleam/otp/factory_supervisor.gleam").
--export([get_by_name/1, worker_child/1, supervisor_child/1, named/2, restart_tolerance/3, timeout/2, restart_strategy/2, start/1, supervised/1, start_child/2, init/1, start_child_callback/2]).
--export_type([supervisor/2, message/2, builder/2, erlang_start_flags/0, erlang_supervisor_name/2, strategy/0, erlang_start_flag/1, erlang_child_spec/0, erlang_child_spec_property/2, timeout_/0]).
+-export([get_by_name/1, worker_child/1, supervisor_child/1, named/2, restart_tolerance/3, timeout/2, restart_strategy/2, start/1, supervised/1, start_child/2, count_children/1, init/1, start_child_callback/2]).
+-export_type([supervisor/2, supervisor_handle/0, message/2, builder/2, erlang_start_flags/0, erlang_supervisor_name/2, strategy/0, erlang_start_flag/1, erlang_child_spec/0, erlang_child_spec_property/2, timeout_/0]).
 
 -if(?OTP_RELEASE >= 27).
 -define(MODULEDOC(Str), -moduledoc(Str)).
@@ -46,7 +46,7 @@
     " \n"
     " /// This function starts the application's supervision tree.\n"
     " ///\n"
-    " /// It takes a record as an argument that \n"
+    " /// It takes a name as an argument that is used by the factory supervisor.\n"
     " ///\n"
     " pub fn start_supervision_tree(reporters_name: Name(_)) -> StartResult(_) {\n"
     "   // Define a named factory supervisor that can create new child processes\n"
@@ -108,39 +108,41 @@
     " ```\n"
 ).
 
--opaque supervisor(GCQ, GCR) :: {supervisor, gleam@erlang@process:pid_()} |
-    {named_supervisor, gleam@erlang@process:name(message(GCQ, GCR))}.
+-opaque supervisor(GBO, GBP) :: {supervisor, supervisor_handle()} |
+    {gleam_phantom, GBO, GBP}.
 
--type message(GCS, GCT) :: any() | {gleam_phantom, GCS, GCT}.
+-type supervisor_handle() :: any().
 
--opaque builder(GCU, GCV) :: {builder,
+-type message(GBQ, GBR) :: any() | {gleam_phantom, GBQ, GBR}.
+
+-opaque builder(GBS, GBT) :: {builder,
         gleam@otp@supervision:child_type(),
-        fun((GCU) -> {ok, gleam@otp@actor:started(GCV)} |
+        fun((GBS) -> {ok, gleam@otp@actor:started(GBT)} |
             {error, gleam@otp@actor:start_error()}),
         gleam@otp@supervision:restart(),
         integer(),
         integer(),
-        gleam@option:option(gleam@erlang@process:name(message(GCU, GCV)))}.
+        gleam@option:option(gleam@erlang@process:name(message(GBS, GBT)))}.
 
 -type erlang_start_flags() :: any().
 
--type erlang_supervisor_name(GCW, GCX) :: {local,
-        gleam@erlang@process:name(message(GCW, GCX))}.
+-type erlang_supervisor_name(GBU, GBV) :: {local,
+        gleam@erlang@process:name(message(GBU, GBV))}.
 
 -type strategy() :: simple_one_for_one.
 
--type erlang_start_flag(GCY) :: {strategy, strategy()} |
+-type erlang_start_flag(GBW) :: {strategy, strategy()} |
     {intensity, integer()} |
     {period, integer()} |
-    {gleam_phantom, GCY}.
+    {gleam_phantom, GBW}.
 
 -type erlang_child_spec() :: any().
 
--type erlang_child_spec_property(GCZ, GDA) :: {id, integer()} |
+-type erlang_child_spec_property(GBX, GBY) :: {id, integer()} |
     {start,
         {gleam@erlang@atom:atom_(),
             gleam@erlang@atom:atom_(),
-            list(fun((GCZ) -> {ok, gleam@otp@actor:started(GDA)} |
+            list(fun((GBX) -> {ok, gleam@otp@actor:started(GBY)} |
                 {error, gleam@otp@actor:start_error()}))}} |
     {restart, gleam@otp@supervision:restart()} |
     {type, gleam@erlang@atom:atom_()} |
@@ -148,7 +150,7 @@
 
 -type timeout_() :: any().
 
--file("src/gleam/otp/factory_supervisor.gleam", 137).
+-file("src/gleam/otp/factory_supervisor.gleam", 151).
 ?DOC(
     " Get a reference to a supervisor using its registered name.\n"
     "\n"
@@ -162,11 +164,11 @@
     " when they are called. Always make sure your supervisors are themselves\n"
     " supervised.\n"
 ).
--spec get_by_name(gleam@erlang@process:name(message(GDB, GDC))) -> supervisor(GDB, GDC).
+-spec get_by_name(gleam@erlang@process:name(message(GCE, GCF))) -> supervisor(GCE, GCF).
 get_by_name(Name) ->
-    {named_supervisor, Name}.
+    {supervisor, gleam_otp_external:identity(Name)}.
 
--file("src/gleam/otp/factory_supervisor.gleam", 164).
+-file("src/gleam/otp/factory_supervisor.gleam", 178).
 ?DOC(
     " Configure a supervisor with a child-starting template function.\n"
     "\n"
@@ -176,13 +178,13 @@ get_by_name(Name) ->
     " `timeout` function.\n"
 ).
 -spec worker_child(
-    fun((GDI) -> {ok, gleam@otp@actor:started(GDJ)} |
+    fun((GCL) -> {ok, gleam@otp@actor:started(GCM)} |
         {error, gleam@otp@actor:start_error()})
-) -> builder(GDI, GDJ).
+) -> builder(GCL, GCM).
 worker_child(Template) ->
     {builder, {worker, 5000}, Template, transient, 2, 5, none}.
 
--file("src/gleam/otp/factory_supervisor.gleam", 185).
+-file("src/gleam/otp/factory_supervisor.gleam", 199).
 ?DOC(
     " Configure a supervisor with a template that will start children that are\n"
     " also supervisors.\n"
@@ -193,13 +195,13 @@ worker_child(Template) ->
     " no timeout.\n"
 ).
 -spec supervisor_child(
-    fun((GDN) -> {ok, gleam@otp@actor:started(GDO)} |
+    fun((GCQ) -> {ok, gleam@otp@actor:started(GCR)} |
         {error, gleam@otp@actor:start_error()})
-) -> builder(GDN, GDO).
+) -> builder(GCQ, GCR).
 supervisor_child(Template) ->
     {builder, supervisor, Template, transient, 2, 5, none}.
 
--file("src/gleam/otp/factory_supervisor.gleam", 206).
+-file("src/gleam/otp/factory_supervisor.gleam", 220).
 ?DOC(
     " Provide a name for the supervisor to be registered with when started,\n"
     " enabling it be more easily contacted by other processes. This is useful for\n"
@@ -209,7 +211,7 @@ supervisor_child(Template) ->
     " If the name is already registered to another process then the factory\n"
     " supervisor will fail to start.\n"
 ).
--spec named(builder(GDS, GDT), gleam@erlang@process:name(message(GDS, GDT))) -> builder(GDS, GDT).
+-spec named(builder(GCV, GCW), gleam@erlang@process:name(message(GCV, GCW))) -> builder(GCV, GCW).
 named(Builder, Name) ->
     {builder,
         erlang:element(2, Builder),
@@ -219,7 +221,7 @@ named(Builder, Name) ->
         erlang:element(6, Builder),
         {some, Name}}.
 
--file("src/gleam/otp/factory_supervisor.gleam", 224).
+-file("src/gleam/otp/factory_supervisor.gleam", 238).
 ?DOC(
     " To prevent a supervisor from getting into an infinite loop of child\n"
     " process terminations and restarts, a maximum restart tolerance is\n"
@@ -232,7 +234,7 @@ named(Builder, Name) ->
     "\n"
     " Intensity defaults to 2 and period defaults to 5.\n"
 ).
--spec restart_tolerance(builder(GEB, GEC), integer(), integer()) -> builder(GEB, GEC).
+-spec restart_tolerance(builder(GDE, GDF), integer(), integer()) -> builder(GDE, GDF).
 restart_tolerance(Builder, Intensity, Period) ->
     {builder,
         erlang:element(2, Builder),
@@ -242,7 +244,7 @@ restart_tolerance(Builder, Intensity, Period) ->
         Period,
         erlang:element(7, Builder)}.
 
--file("src/gleam/otp/factory_supervisor.gleam", 239).
+-file("src/gleam/otp/factory_supervisor.gleam", 253).
 ?DOC(
     " Configure the amount of milliseconds a child has to shut down before\n"
     " being brutal killed by the supervisor.\n"
@@ -251,7 +253,7 @@ restart_tolerance(Builder, Intensity, Period) ->
     "\n"
     " This will be ignored if the child is a supervisor itself.\n"
 ).
--spec timeout(builder(GEH, GEI), integer()) -> builder(GEH, GEI).
+-spec timeout(builder(GDK, GDL), integer()) -> builder(GDK, GDL).
 timeout(Builder, Ms) ->
     case erlang:element(2, Builder) of
         {worker, _} ->
@@ -267,7 +269,7 @@ timeout(Builder, Ms) ->
             Builder
     end.
 
--file("src/gleam/otp/factory_supervisor.gleam", 256).
+-file("src/gleam/otp/factory_supervisor.gleam", 270).
 ?DOC(
     " Configure the strategy for restarting children when they exit. See the\n"
     " documentation for the `supervision.Restart` for details.\n"
@@ -275,7 +277,7 @@ timeout(Builder, Ms) ->
     " If not set the default strategy is `supervision.Transient`, so children\n"
     " will be restarted if they terminate abnormally.\n"
 ).
--spec restart_strategy(builder(GEN, GEO), gleam@otp@supervision:restart()) -> builder(GEN, GEO).
+-spec restart_strategy(builder(GDQ, GDR), gleam@otp@supervision:restart()) -> builder(GDQ, GDR).
 restart_strategy(Builder, Restart_strategy) ->
     case erlang:element(2, Builder) of
         {worker, _} ->
@@ -291,7 +293,7 @@ restart_strategy(Builder, Restart_strategy) ->
             Builder
     end.
 
--file("src/gleam/otp/factory_supervisor.gleam", 275).
+-file("src/gleam/otp/factory_supervisor.gleam", 289).
 ?DOC(
     " Start a new supervisor process with the configuration and child template\n"
     " specified within the builder.\n"
@@ -302,8 +304,8 @@ restart_strategy(Builder, Restart_strategy) ->
     " The supervisor will be linked to the parent process that calls this\n"
     " function.\n"
 ).
--spec start(builder(GET, GEU)) -> {ok,
-        gleam@otp@actor:started(supervisor(GET, GEU))} |
+-spec start(builder(GDW, GDX)) -> {ok,
+        gleam@otp@actor:started(supervisor(GDW, GDX))} |
     {error, gleam@otp@actor:start_error()}.
 start(Builder) ->
     Flags = maps:from_list(
@@ -340,65 +342,78 @@ start(Builder) ->
     end,
     case Start_result of
         {ok, Pid} ->
-            {ok, {started, Pid, {supervisor, Pid}}};
+            Supervisor = {supervisor, gleam_otp_external:identity(Pid)},
+            {ok, {started, Pid, Supervisor}};
 
         {error, Error} ->
             {error, gleam_otp_external:convert_erlang_start_error(Error)}
     end.
 
--file("src/gleam/otp/factory_supervisor.gleam", 388).
+-file("src/gleam/otp/factory_supervisor.gleam", 405).
 ?DOC(
     " Create a `ChildSpecification` that adds this supervisor as the child of\n"
     " another, making it fault tolerant and part of the application's supervision\n"
-    " tree. You should prefer to starting unsupervised supervisors with the\n"
+    " tree. You should prefer this to starting unsupervised supervisors with the\n"
     " `start` function.\n"
     "\n"
-    " If any child fails to start the supevisor first terminates all already\n"
+    " If any child fails to start the supervisor first terminates all already\n"
     " started child processes with reason shutdown and then terminate itself and\n"
     " returns an error.\n"
 ).
--spec supervised(builder(GFS, GFT)) -> gleam@otp@supervision:child_specification(supervisor(GFS, GFT)).
+-spec supervised(builder(GEV, GEW)) -> gleam@otp@supervision:child_specification(supervisor(GEV, GEW)).
 supervised(Builder) ->
     gleam@otp@supervision:supervisor(fun() -> start(Builder) end).
 
--file("src/gleam/otp/factory_supervisor.gleam", 397).
+-file("src/gleam/otp/factory_supervisor.gleam", 414).
 ?DOC(
     " Start a new child using the supervisor's child template and the given\n"
     " argument. The start result of the child is returned.\n"
 ).
--spec start_child(supervisor(GFZ, GGA), GFZ) -> {ok,
-        gleam@otp@actor:started(GGA)} |
+-spec start_child(supervisor(GFC, GFD), GFC) -> {ok,
+        gleam@otp@actor:started(GFD)} |
     {error, gleam@otp@actor:start_error()}.
 start_child(Supervisor, Argument) ->
-    Start = case Supervisor of
-        {named_supervisor, Name} ->
-            fun(_capture) -> supervisor:start_child(Name, _capture) end;
-
-        {supervisor, Pid} ->
-            fun(_capture@1) -> supervisor:start_child(Pid, _capture@1) end
-    end,
-    case Start([Argument]) of
-        {ok, Pid@1, Data} ->
-            {ok, {started, Pid@1, Data}};
+    case supervisor:start_child(erlang:element(2, Supervisor), [Argument]) of
+        {ok, Pid, Data} ->
+            {ok, {started, Pid, Data}};
 
         {error, Reason} ->
             {error, Reason}
     end.
 
--file("src/gleam/otp/factory_supervisor.gleam", 425).
+-file("src/gleam/otp/factory_supervisor.gleam", 432).
+?DOC(
+    " Returns the number of children under the supervisor.\n"
+    "\n"
+    " This function runs the same speed regardless of how many children the\n"
+    " supervisor has.\n"
+    "\n"
+    " If the supervisor is heavily overloaded this number could be inaccurate due\n"
+    " to the supervisor still processing the termination of some of its children.\n"
+).
+-spec count_children(supervisor(any(), any())) -> integer().
+count_children(Factory) ->
+    _pipe = supervisor:count_children(erlang:element(2, Factory)),
+    _pipe@1 = gleam@list:key_find(
+        _pipe,
+        erlang:binary_to_atom(<<"active"/utf8>>)
+    ),
+    gleam@result:unwrap(_pipe@1, 0).
+
+-file("src/gleam/otp/factory_supervisor.gleam", 449).
 ?DOC(false).
 -spec init(gleam@dynamic:dynamic_()) -> {ok, gleam@dynamic:dynamic_()} |
     {error, any()}.
 init(Start_data) ->
     {ok, Start_data}.
 
--file("src/gleam/otp/factory_supervisor.gleam", 431).
+-file("src/gleam/otp/factory_supervisor.gleam", 455).
 ?DOC(false).
 -spec start_child_callback(
-    fun((GGX) -> {ok, gleam@otp@actor:started(GGY)} |
+    fun((GFV) -> {ok, gleam@otp@actor:started(GFW)} |
         {error, gleam@otp@actor:start_error()}),
-    GGX
-) -> gleam@otp@internal@result2:result2(gleam@erlang@process:pid_(), GGY, gleam@otp@actor:start_error()).
+    GFV
+) -> gleam@otp@internal@result2:result2(gleam@erlang@process:pid_(), GFW, gleam@otp@actor:start_error()).
 start_child_callback(Start, Argument) ->
     case Start(Argument) of
         {ok, Started} ->

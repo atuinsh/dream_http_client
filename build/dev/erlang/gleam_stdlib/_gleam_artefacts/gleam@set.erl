@@ -12,7 +12,7 @@
 -define(DOC(Str), -compile([])).
 -endif.
 
--opaque set(CVN) :: {set, gleam@dict:dict(CVN, list(nil))}.
+-opaque set(CVL) :: {set, gleam@dict:dict(CVL, list(nil))}.
 
 -file("src/gleam/set.gleam", 32).
 ?DOC(" Creates a new empty set.\n").
@@ -29,58 +29,56 @@ new() ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " new()\n"
-    " |> insert(1)\n"
-    " |> insert(2)\n"
-    " |> size\n"
-    " // -> 2\n"
+    " assert set.new()\n"
+    "   |> set.insert(1)\n"
+    "   |> set.insert(2)\n"
+    "   |> set.size\n"
+    "   == 2\n"
     " ```\n"
 ).
 -spec size(set(any())) -> integer().
 size(Set) ->
     maps:size(erlang:element(2, Set)).
 
--file("src/gleam/set.gleam", 68).
+-file("src/gleam/set.gleam", 66).
 ?DOC(
     " Determines whether or not the set is empty.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " new() |> is_empty\n"
-    " // -> True\n"
+    " assert set.new() |> set.is_empty\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " new() |> insert(1) |> is_empty\n"
-    " // -> False\n"
+    " assert !{ set.new() |> set.insert(1) |> set.is_empty }\n"
     " ```\n"
 ).
 -spec is_empty(set(any())) -> boolean().
 is_empty(Set) ->
     Set =:= new().
 
--file("src/gleam/set.gleam", 86).
+-file("src/gleam/set.gleam", 84).
 ?DOC(
-    " Inserts an member into the set.\n"
+    " Inserts a member into the set.\n"
     "\n"
     " This function runs in logarithmic time.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " new()\n"
-    " |> insert(1)\n"
-    " |> insert(2)\n"
-    " |> size\n"
-    " // -> 2\n"
+    " assert set.new()\n"
+    "   |> set.insert(1)\n"
+    "   |> set.insert(2)\n"
+    "   |> set.size\n"
+    "   == 2\n"
     " ```\n"
 ).
--spec insert(set(CVV), CVV) -> set(CVV).
+-spec insert(set(CVT), CVT) -> set(CVT).
 insert(Set, Member) ->
     {set, gleam@dict:insert(erlang:element(2, Set), Member, [])}.
 
--file("src/gleam/set.gleam", 110).
+-file("src/gleam/set.gleam", 108).
 ?DOC(
     " Checks whether a set contains a given member.\n"
     "\n"
@@ -89,26 +87,26 @@ insert(Set, Member) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " new()\n"
-    " |> insert(2)\n"
-    " |> contains(2)\n"
-    " // -> True\n"
+    " assert set.new()\n"
+    "   |> set.insert(2)\n"
+    "   |> set.contains(2)\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " new()\n"
-    " |> insert(2)\n"
-    " |> contains(1)\n"
-    " // -> False\n"
+    " assert !{\n"
+    "   set.new()\n"
+    "   |> set.insert(2)\n"
+    "   |> set.contains(1)\n"
+    " }\n"
     " ```\n"
 ).
--spec contains(set(CVY), CVY) -> boolean().
+-spec contains(set(CVW), CVW) -> boolean().
 contains(Set, Member) ->
     _pipe = erlang:element(2, Set),
     _pipe@1 = gleam_stdlib:map_get(_pipe, Member),
     gleam@result:is_ok(_pipe@1).
 
--file("src/gleam/set.gleam", 131).
+-file("src/gleam/set.gleam", 130).
 ?DOC(
     " Removes a member from a set. If the set does not contain the member then\n"
     " the set is returned unchanged.\n"
@@ -118,18 +116,19 @@ contains(Set, Member) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " new()\n"
-    " |> insert(2)\n"
-    " |> delete(2)\n"
-    " |> contains(1)\n"
-    " // -> False\n"
+    " assert !{\n"
+    "   set.new()\n"
+    "   |> set.insert(2)\n"
+    "   |> set.delete(2)\n"
+    "   |> set.contains(2)\n"
+    " }\n"
     " ```\n"
 ).
--spec delete(set(CWA), CWA) -> set(CWA).
+-spec delete(set(CVY), CVY) -> set(CVY).
 delete(Set, Member) ->
     {set, gleam@dict:delete(erlang:element(2, Set), Member)}.
 
--file("src/gleam/set.gleam", 149).
+-file("src/gleam/set.gleam", 147).
 ?DOC(
     " Converts the set into a list of the contained members.\n"
     "\n"
@@ -141,15 +140,14 @@ delete(Set, Member) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " new() |> insert(2) |> to_list\n"
-    " // -> [2]\n"
+    " assert set.new() |> set.insert(2) |> set.to_list == [2]\n"
     " ```\n"
 ).
--spec to_list(set(CWD)) -> list(CWD).
+-spec to_list(set(CWB)) -> list(CWB).
 to_list(Set) ->
     maps:keys(erlang:element(2, Set)).
 
--file("src/gleam/set.gleam", 167).
+-file("src/gleam/set.gleam", 168).
 ?DOC(
     " Creates a new set of the members in a given list.\n"
     "\n"
@@ -161,11 +159,14 @@ to_list(Set) ->
     " import gleam/int\n"
     " import gleam/list\n"
     "\n"
-    " [1, 1, 2, 4, 3, 2] |> from_list |> to_list |> list.sort(by: int.compare)\n"
-    " // -> [1, 2, 3, 4]\n"
+    " assert [1, 1, 2, 4, 3, 2]\n"
+    "   |> set.from_list\n"
+    "   |> set.to_list\n"
+    "   |> list.sort(by: int.compare)\n"
+    "   == [1, 2, 3, 4]\n"
     " ```\n"
 ).
--spec from_list(list(CWG)) -> set(CWG).
+-spec from_list(list(CWE)) -> set(CWE).
 from_list(Members) ->
     Dict = gleam@list:fold(
         Members,
@@ -174,7 +175,7 @@ from_list(Members) ->
     ),
     {set, Dict}.
 
--file("src/gleam/set.gleam", 190).
+-file("src/gleam/set.gleam", 191).
 ?DOC(
     " Combines all entries into a single value by calling a given function on each\n"
     " one.\n"
@@ -183,15 +184,15 @@ from_list(Members) ->
     " Do not write code that relies on the order entries are used by this\n"
     " function as it may change in later versions of Gleam or Erlang.\n"
     "\n"
-    " # Examples\n"
+    " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " from_list([1, 3, 9])\n"
-    " |> fold(0, fn(accumulator, member) { accumulator + member })\n"
-    " // -> 13\n"
+    " assert set.from_list([1, 3, 9])\n"
+    "   |> set.fold(0, fn(accumulator, member) { accumulator + member })\n"
+    "   == 13\n"
     " ```\n"
 ).
--spec fold(set(CWJ), CWL, fun((CWL, CWJ) -> CWL)) -> CWL.
+-spec fold(set(CWH), CWJ, fun((CWJ, CWH) -> CWJ)) -> CWJ.
 fold(Set, Initial, Reducer) ->
     gleam@dict:fold(
         erlang:element(2, Set),
@@ -199,7 +200,7 @@ fold(Set, Initial, Reducer) ->
         fun(A, K, _) -> Reducer(A, K) end
     ).
 
--file("src/gleam/set.gleam", 214).
+-file("src/gleam/set.gleam", 215).
 ?DOC(
     " Creates a new set from an existing set, minus any members that a given\n"
     " function returns `False` for.\n"
@@ -211,18 +212,18 @@ fold(Set, Initial, Reducer) ->
     " ```gleam\n"
     " import gleam/int\n"
     "\n"
-    " from_list([1, 4, 6, 3, 675, 44, 67])\n"
-    " |> filter(keeping: int.is_even)\n"
-    " |> to_list\n"
-    " // -> [4, 6, 44]\n"
+    " assert set.from_list([1, 4, 6, 3, 675, 44, 67])\n"
+    "   |> set.filter(keeping: int.is_even)\n"
+    "   |> set.to_list\n"
+    "   == [4, 6, 44]\n"
     " ```\n"
 ).
--spec filter(set(CWM), fun((CWM) -> boolean())) -> set(CWM).
+-spec filter(set(CWK), fun((CWK) -> boolean())) -> set(CWK).
 filter(Set, Predicate) ->
     {set,
         gleam@dict:filter(erlang:element(2, Set), fun(M, _) -> Predicate(M) end)}.
 
--file("src/gleam/set.gleam", 232).
+-file("src/gleam/set.gleam", 234).
 ?DOC(
     " Creates a new set from a given set with the result of applying the given\n"
     " function to each member.\n"
@@ -230,17 +231,17 @@ filter(Set, Predicate) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " from_list([1, 2, 3, 4])\n"
-    " |> map(with: fn(x) { x * 2 })\n"
-    " |> to_list\n"
-    " // -> [2, 4, 6, 8]\n"
+    " assert set.from_list([1, 2, 3, 4])\n"
+    "   |> set.map(with: fn(x) { x * 2 })\n"
+    "   |> set.to_list\n"
+    "   == [2, 4, 6, 8]\n"
     " ```\n"
 ).
--spec map(set(CWP), fun((CWP) -> CWR)) -> set(CWR).
+-spec map(set(CWN), fun((CWN) -> CWP)) -> set(CWP).
 map(Set, Fun) ->
     fold(Set, new(), fun(Acc, Member) -> insert(Acc, Fun(Member)) end).
 
--file("src/gleam/set.gleam", 249).
+-file("src/gleam/set.gleam", 252).
 ?DOC(
     " Creates a new set from a given set with all the same entries except any\n"
     " entry found on the given list.\n"
@@ -248,17 +249,17 @@ map(Set, Fun) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " from_list([1, 2, 3, 4])\n"
-    " |> drop([1, 3])\n"
-    " |> to_list\n"
-    " // -> [2, 4]\n"
+    " assert set.from_list([1, 2, 3, 4])\n"
+    "   |> set.drop([1, 3])\n"
+    "   |> set.to_list\n"
+    "   == [2, 4]\n"
     " ```\n"
 ).
--spec drop(set(CWT), list(CWT)) -> set(CWT).
+-spec drop(set(CWR), list(CWR)) -> set(CWR).
 drop(Set, Disallowed) ->
     gleam@list:fold(Disallowed, Set, fun delete/2).
 
--file("src/gleam/set.gleam", 267).
+-file("src/gleam/set.gleam", 273).
 ?DOC(
     " Creates a new set from a given set, only including any members which are in\n"
     " a given list.\n"
@@ -268,18 +269,18 @@ drop(Set, Disallowed) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " from_list([1, 2, 3])\n"
-    " |> take([1, 3, 5])\n"
-    " |> to_list\n"
-    " // -> [1, 3]\n"
+    " assert set.from_list([1, 2, 3])\n"
+    "   |> set.take([1, 3, 5])\n"
+    "   |> set.to_list\n"
+    "   == [1, 3]\n"
     " ```\n"
 ).
--spec take(set(CWX), list(CWX)) -> set(CWX).
+-spec take(set(CWV), list(CWV)) -> set(CWV).
 take(Set, Desired) ->
     {set, gleam@dict:take(erlang:element(2, Set), Desired)}.
 
--file("src/gleam/set.gleam", 287).
--spec order(set(CXF), set(CXF)) -> {set(CXF), set(CXF)}.
+-file("src/gleam/set.gleam", 296).
+-spec order(set(CXD), set(CXD)) -> {set(CXD), set(CXD)}.
 order(First, Second) ->
     case maps:size(erlang:element(2, First)) > maps:size(
         erlang:element(2, Second)
@@ -291,7 +292,7 @@ order(First, Second) ->
             {Second, First}
     end.
 
--file("src/gleam/set.gleam", 282).
+-file("src/gleam/set.gleam", 291).
 ?DOC(
     " Creates a new set that contains all members of both given sets.\n"
     "\n"
@@ -300,16 +301,16 @@ order(First, Second) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " union(from_list([1, 2]), from_list([2, 3])) |> to_list\n"
-    " // -> [1, 2, 3]\n"
+    " assert set.union(set.from_list([1, 2]), set.from_list([2, 3])) |> set.to_list\n"
+    "   == [1, 2, 3]\n"
     " ```\n"
 ).
--spec union(set(CXB), set(CXB)) -> set(CXB).
+-spec union(set(CWZ), set(CWZ)) -> set(CWZ).
 union(First, Second) ->
     {Larger, Smaller} = order(First, Second),
     fold(Smaller, Larger, fun insert/2).
 
--file("src/gleam/set.gleam", 305).
+-file("src/gleam/set.gleam", 318).
 ?DOC(
     " Creates a new set that contains members that are present in both given sets.\n"
     "\n"
@@ -318,16 +319,17 @@ union(First, Second) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " intersection(from_list([1, 2]), from_list([2, 3])) |> to_list\n"
-    " // -> [2]\n"
+    " assert set.intersection(set.from_list([1, 2]), set.from_list([2, 3]))\n"
+    "   |> set.to_list\n"
+    "   == [2]\n"
     " ```\n"
 ).
--spec intersection(set(CXK), set(CXK)) -> set(CXK).
+-spec intersection(set(CXI), set(CXI)) -> set(CXI).
 intersection(First, Second) ->
     {Larger, Smaller} = order(First, Second),
     take(Larger, to_list(Smaller)).
 
--file("src/gleam/set.gleam", 323).
+-file("src/gleam/set.gleam", 337).
 ?DOC(
     " Creates a new set that contains members that are present in the first set\n"
     " but not the second.\n"
@@ -335,89 +337,93 @@ intersection(First, Second) ->
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " difference(from_list([1, 2]), from_list([2, 3, 4])) |> to_list\n"
-    " // -> [1]\n"
+    " assert set.difference(set.from_list([1, 2]), set.from_list([2, 3, 4]))\n"
+    "   |> set.to_list\n"
+    "   == [1]\n"
     " ```\n"
 ).
--spec difference(set(CXO), set(CXO)) -> set(CXO).
+-spec difference(set(CXM), set(CXM)) -> set(CXM).
 difference(First, Second) ->
     drop(First, to_list(Second)).
 
--file("src/gleam/set.gleam", 344).
+-file("src/gleam/set.gleam", 356).
 ?DOC(
     " Determines if a set is fully contained by another.\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " is_subset(from_list([1]), from_list([1, 2]))\n"
-    " // -> True\n"
+    " assert set.is_subset(set.from_list([1]), set.from_list([1, 2]))\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " is_subset(from_list([1, 2, 3]), from_list([3, 4, 5]))\n"
-    " // -> False\n"
+    " assert !set.is_subset(set.from_list([1, 2, 3]), set.from_list([3, 4, 5]))\n"
     " ```\n"
 ).
--spec is_subset(set(CXS), set(CXS)) -> boolean().
+-spec is_subset(set(CXQ), set(CXQ)) -> boolean().
 is_subset(First, Second) ->
     intersection(First, Second) =:= First.
 
--file("src/gleam/set.gleam", 362).
+-file("src/gleam/set.gleam", 372).
 ?DOC(
     " Determines if two sets contain no common members\n"
     "\n"
     " ## Examples\n"
     "\n"
     " ```gleam\n"
-    " is_disjoint(from_list([1, 2, 3]), from_list([4, 5, 6]))\n"
-    " // -> True\n"
+    " assert set.is_disjoint(set.from_list([1, 2, 3]), set.from_list([4, 5, 6]))\n"
     " ```\n"
     "\n"
     " ```gleam\n"
-    " is_disjoint(from_list([1, 2, 3]), from_list([3, 4, 5]))\n"
-    " // -> False\n"
+    " assert !set.is_disjoint(set.from_list([1, 2, 3]), set.from_list([3, 4, 5]))\n"
     " ```\n"
 ).
--spec is_disjoint(set(CXV), set(CXV)) -> boolean().
+-spec is_disjoint(set(CXT), set(CXT)) -> boolean().
 is_disjoint(First, Second) ->
     intersection(First, Second) =:= new().
 
--file("src/gleam/set.gleam", 374).
+-file("src/gleam/set.gleam", 390).
 ?DOC(
     " Creates a new set that contains members that are present in either set, but\n"
     " not both.\n"
     "\n"
+    " ## Examples\n"
+    "\n"
     " ```gleam\n"
-    " symmetric_difference(from_list([1, 2, 3]), from_list([3, 4])) |> to_list\n"
-    " // -> [1, 2, 4]\n"
+    " assert set.symmetric_difference(\n"
+    "     set.from_list([1, 2, 3]),\n"
+    "     set.from_list([3, 4]),\n"
+    "   )\n"
+    "   |> set.to_list\n"
+    "   == [1, 2, 4]\n"
     " ```\n"
 ).
--spec symmetric_difference(set(CXY), set(CXY)) -> set(CXY).
+-spec symmetric_difference(set(CXW), set(CXW)) -> set(CXW).
 symmetric_difference(First, Second) ->
     difference(union(First, Second), intersection(First, Second)).
 
--file("src/gleam/set.gleam", 402).
+-file("src/gleam/set.gleam", 419).
 ?DOC(
     " Calls a function for each member in a set, discarding the return\n"
     " value.\n"
     "\n"
     " Useful for producing a side effect for every item of a set.\n"
     "\n"
-    " ```gleam\n"
-    " let set = from_list([\"apple\", \"banana\", \"cherry\"])\n"
+    " The order of elements in the iteration is an implementation detail that\n"
+    " should not be relied upon.\n"
     "\n"
-    " each(set, io.println)\n"
-    " // -> Nil\n"
+    " ## Examples\n"
+    "\n"
+    " ```gleam\n"
+    " let set = set.from_list([\"apple\", \"banana\", \"cherry\"])\n"
+    "\n"
+    " assert set.each(set, io.println) == Nil\n"
     " // apple\n"
     " // banana\n"
     " // cherry\n"
     " ```\n"
-    "\n"
-    " The order of elements in the iteration is an implementation detail that\n"
-    " should not be relied upon.\n"
 ).
--spec each(set(CYC), fun((CYC) -> any())) -> nil.
+-spec each(set(CYA), fun((CYA) -> any())) -> nil.
 each(Set, Fun) ->
     fold(
         Set,

@@ -104,7 +104,7 @@
 ////   case message {
 ////     // For the `Shutdown` message we return the `actor.stop` value, which causes
 ////     // the actor to discard any remaining messages and stop.
-////     // We may chose to do some clean-up work here, but this actor doesn't need
+////     // We may choose to do some clean-up work here, but this actor doesn't need
 ////     // to do this.
 ////     Shutdown -> actor.stop()
 //// 
@@ -348,7 +348,7 @@ pub fn new(state: state) -> Builder(state, message, Subject(message)) {
 /// will be returned to the parent.
 ///
 /// The actor's default subject is passed to the initialiser function. You can
-/// chose to return it to the parent with `returning`, use it in some other
+/// choose to return it to the parent with `returning`, use it in some other
 /// way, or ignore it completely.
 ///
 /// If a custom selector is given using the `selecting` function then this

@@ -5,6 +5,247 @@ All notable changes to `dream_http_client` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 5.1.3 - 2026-03-17
+
+### Fixed
+
+- **ETS table ownership no longer causes silent stream process crashes.**
+  `dream_http_client` is now a proper OTP application. Both ETS tables
+  (`dream_http_client_ref_mapping` and `dream_http_client_stream_recorders`)
+  are created in the application's `start/2` callback and owned by the
+  application master process, which lives for the entire application lifetime.
+  Previously, the tables were owned by whichever short-lived process first
+  created them. When that process exited, the tables were destroyed. Concurrent
+  stream processes crashed with `badarg` inside
+  `decode_stream_message_for_selector/1`, killing the stream silently — no
+  `on_stream_error` callback fired.
+- **Race condition on ETS table creation eliminated.** Application start is
+  serialized by the BEAM's application controller. Two processes can no longer
+  race to create the tables.
+- **Removed all `try/catch error:badarg` guards from ETS access.** The previous
+  fix wrapped every ETS operation in try/catch, which silently swallowed errors
+  (e.g., returning compressed bytes as raw data). With the table now guaranteed
+  to exist for the application's lifetime, these guards are unnecessary and
+  were masking real errors. ETS operations are now direct calls — if the table
+  is gone, the process crashes loudly, which is correct behavior.
+
+### Added
+
+- **OTP application infrastructure.** `dream_http_client_app` (application
+  behaviour) and `dream_http_client_sup` (supervisor) provide the standard OTP
+  lifecycle for the module's ETS tables. This follows the same pattern used by
+  Ranch (Cowboy's transport layer).
+- **7 regression tests** covering ETS table ownership verification and
+  concurrent streaming scenarios. Integration tests verify concurrent streams
+  from short-lived callers all complete — the exact scenario from the bug
+  report.
+
+### Removed
+
+- **Unsupervised holder process.** The bare `spawn` + `ets:give_away` pattern
+  was replaced by proper OTP application ownership.
+- **Lazy ETS table creation.** `ensure_ref_mapping_table/0`,
+  `ensure_recorder_table/0`, and `ensure_ets_tables/0` are removed. Tables
+  exist from application start.
+
+## 5.1.2 - 2026-03-03
+
+### Fixed
+
+- **Query parameters are now included in HTTP requests.** `build_url` in
+  `client.gleam` constructed the URL from scheme, host, port, and path but
+  never appended the query string. Any caller using `.query("key=value")`
+  silently sent requests without query parameters. Affects `send()` and
+  `start_stream()`.
+- **`stream_yielder()` also dropped query parameters.** `start_httpc_stream`
+  in `internal.gleam` had its own URL construction that independently omitted
+  the query string — a separate code path from the `build_url` fix above.
+
+### Added
+
+- **8 regression tests** covering query parameter delivery across all three
+  execution modes (`send`, `stream_yielder`, `start_stream`), recorder
+  integration (record + playback round-trip), URL-encoded special characters,
+  and the empty query string edge case. All assertions parse the JSON `query`
+  field from the mock server's response for exact matching.
+
+## 5.1.1 - 2026-03-01
+
+### Fixed
+
+- **Stream error reasons are now always decodable as Gleam strings.** Previously,
+  transport-level errors from Erlang's `httpc` (e.g., `socket_closed_remotely`,
+  `{failed_connect, ...}`) were passed through as raw Erlang atoms/tuples in the
+  pull-based streaming path (`stream_yielder`), causing `d.string` decode failures
+  and hiding the real error behind "Unknown stream error". Additionally,
+  `format_error` could produce non-UTF-8 binaries (Latin-1 from `io_lib:format`),
+  which Gleam's string decoder rejected with `DecodeError("String", "String", [])`.
+- **All error formatting functions now guarantee valid UTF-8 output.** Added
+  `ensure_utf8_binary/1` helper that validates UTF-8, falls back to Latin-1
+  reinterpretation for binaries, and uses `~w` (pure ASCII) as a last resort.
+  Updated `format_error`, `format_complete_response_error`, `format_exit_reason`,
+  `to_binary`, and `ref_to_string` to use it.
+- **Pull-based streaming path now formats error reasons.** `stream_owner_wait`
+  and `stream_owner_next_message` now call `format_error(Reason)` on httpc error
+  reasons instead of passing raw Erlang terms through to the Gleam decoder.
+- **Gleam-side decoders have robust fallbacks.** Both `decode_error_reason` in
+  `client.gleam` and `receive_next` in `internal.gleam` now use a three-tier
+  fallback: try `d.string`, try `d.bit_array` with UTF-8 conversion, fall back
+  to `string.inspect`. Error reasons are never silently swallowed.
+- **9 new tests** covering transport-level errors (connection refused, connection
+  drop mid-stream), non-UTF-8 response bodies, and error string quality across
+  all three execution modes (`send`, `start_stream`, `stream_yielder`).
+
+## 5.1.0 - 2026-02-28
+
+### Added
+
+- **Transparent gzip/deflate decompression for all HTTP client modes.** The client now
+  automatically sends `Accept-Encoding: gzip, deflate` and decompresses response bodies
+  when the server returns `Content-Encoding: gzip` or `Content-Encoding: deflate`.
+  This works across all three execution modes:
+  - `send()` — synchronous responses are decompressed before returning
+  - `start_stream()` — streamed chunks are decompressed on-the-fly via zlib inflate
+  - `stream_yielder()` — streamed chunks are decompressed on-the-fly via zlib inflate
+- **User-set `Accept-Encoding` headers are preserved.** If you explicitly set an
+  `Accept-Encoding` header on a request, the client will not inject its own — your
+  header takes precedence.
+- **Unrecognized encodings are passed through with a warning.** If a server returns
+  an encoding the client does not support (e.g., `br`, `zstd`), the raw bytes are
+  passed through unchanged and a warning is logged. The client does not crash.
+- **Corrupted compressed data is handled gracefully.** If decompression fails (e.g.,
+  corrupted gzip data), the raw bytes are passed through with a warning instead of
+  crashing the process.
+- **24 new compression tests** covering the full permutation matrix of encoding type
+  (gzip, deflate, identity, none, unknown, corrupted) x request mode (send, start_stream,
+  stream_yielder), header injection behavior, and zlib lifecycle cleanup.
+- **10 new streaming regression tests** for the non-streaming response bug fix (see Fixed below).
+
+### Fixed
+
+- **Streaming requests no longer crash when upstream returns a non-streaming error response.**
+  When a streaming HTTP request (`start_stream()` / `stream_yielder()`) hit an endpoint that
+  returned a complete HTTP error (e.g., 401, 403, 429, 500 with a JSON body) instead of starting
+  an SSE stream, Erlang's `httpc` sent a complete response message that was unhandled.
+  `decode_stream_message_for_selector` crashed with `error(badarg)`, killing the stream process
+  and causing a 504 timeout. The `on_stream_error` callback was never invoked, and the upstream
+  error details (status code, response body) were lost entirely.
+- **All four streaming code paths now handle complete response messages:**
+  - `decode_stream_message_for_selector/1` — was crashing with `error(badarg)`, now routes to `stream_error`
+  - `receive_stream_message/1` — was timing out silently, now returns `stream_error` with status and body
+  - `stream_owner_wait/5` — was silently discarding the message via `_Other` catchall, now buffers the error
+  - `stream_owner_next_message/2` — was recursing forever via `_Other` catchall, now returns the error
+- **Error messages include HTTP status code and response body.** The `on_stream_error` callback
+  (and `stream_yielder` `Error` results) now receive a formatted message like
+  `"HTTP 401 Unauthorized: {\"error\":{\"message\":\"Invalid API key\"}}"` instead of crashing
+  or timing out.
+
+## 5.0.0 - 2026-02-16
+
+### Breaking Changes
+
+- **`send()` now returns `Result(HttpResponse, SendError)`** instead of `Result(String, String)`.
+  - `HttpResponse` carries `status: Int`, `headers: List(Header)`, and `body: String`.
+  - `SendError` has two variants:
+    - `ResponseError(response: HttpResponse)` — server returned 4xx/5xx (full response available)
+    - `RequestError(message: String)` — connection failure, timeout, DNS error, or recorder error
+  - HTTP error responses (status >= 400) are now routed to `Error(ResponseError(...))` instead of `Ok(body)`.
+  - Successful responses (status < 400) are `Ok(HttpResponse(...))`.
+
+### Fixed
+
+- **HTTP 4xx/5xx responses no longer silently succeed.** In 4.x, a 404 or 500 response
+  came back as `Ok(body)`, identical to a 200. Callers had no way to detect failure without
+  parsing the body. Now 4xx/5xx responses are routed to `Error(ResponseError(response))`
+  with the full `HttpResponse` available for inspection — status code, headers, and body.
+- **`start_stream()` playback no longer errors.** In 4.x, `start_stream()` with a recorder
+  in playback mode returned `Error("Message-based streaming does not support playback mode")`.
+  Callback-based streaming could record but never play back, forcing tests to hit real endpoints
+  every run. Now `start_stream()` replays recorded chunks directly via your callbacks.
+- **`dream_opensearch` adapted to `client.new()`.** The opensearch client was still using the
+  pre-4.0 `client.new` (without parentheses), which worked by accident in 4.x but was
+  technically incorrect per the 4.0 migration guide.
+
+### Added
+
+- **`HttpResponse` type** — carries `status: Int`, `headers: List(Header)`, and `body: String`
+  for complete HTTP response inspection.
+- **`SendError` type** — typed error variants distinguishing HTTP errors (`ResponseError`) from
+  transport failures (`RequestError`), replacing opaque `Error(String)`.
+- **`start_stream()` playback support.** When a recorder is attached and a matching recording
+  exists, `start_stream()` replays recorded chunks directly via your `on_stream_start`,
+  `on_stream_chunk`, and `on_stream_end` callbacks — no network calls required. All three
+  execution modes (`send()`, `stream_yielder()`, `start_stream()`) now fully support both
+  recording and playback.
+
+### Migration Guide
+
+**Before (4.x):**
+
+```gleam
+case client.send(request) {
+  Ok(body) -> use_body(body)
+  Error(message) -> handle_error(message)
+}
+```
+
+**After (5.0):**
+
+```gleam
+case client.send(request) {
+  Ok(client.HttpResponse(status: status, headers: headers, body: body)) ->
+    use_response(status, headers, body)
+  Error(client.ResponseError(response: client.HttpResponse(body: body, ..))) ->
+    handle_http_error(body)
+  Error(client.RequestError(message: message)) ->
+    handle_connection_error(message)
+}
+```
+
+**Quick migration** — if you only need the body:
+
+```gleam
+let assert Ok(client.HttpResponse(body: body, ..)) = client.send(request)
+```
+
+## 4.1.0 - 2026-01-28
+
+### Changed
+
+- Recording fixtures are written atomically to prevent partial reads during capture.
+
+### Added
+
+- Storage test coverage for atomic fixture writes and cleanup.
+
+## 4.0.0 - 2025-12-29
+
+### Breaking Changes
+
+- **Recorder API redesigned**: `recorder.start(mode, matching_config)` replaced by a builder API:
+  - `recorder.new() |> directory(dir) |> mode("record"|"playback"|"passthrough") |> start()` (import `dream_http_client/recorder.{directory, mode, start}`)
+- **Client request builder updated**:
+  - `client.new` is now `client.new()` (function) for consistency with other builders
+- **Matching API redesigned**:
+  - Removed `matching.MatchingConfig`, `matching.match_url_only()`, and signature/match helpers
+  - Added `matching.MatchKey` and `matching.request_key(method:, url:, headers:, body:)`
+- **Ambiguous playback now errors**: if multiple recordings share the same computed key, lookup returns an error (indicates the key/transformer is too coarse).
+- `recorder.find_recording(...)` now returns `Result(Option(Recording), String)` to surface ambiguity errors.
+
+### Added
+
+- **Custom match keys** via `recorder.key(...)` (any `RecordedRequest -> String`).
+- **Request transformer hook** via `recorder.request_transformer(...)` to normalize/scrub requests before keying and persistence.
+- **Response transformer hook** via `recorder.response_transformer(...)` to scrub recorded responses before they are written to disk (Record mode only).
+
+### Changed
+
+- Recording filenames now include both a **key hash** and a **content hash** to avoid overwriting when multiple recordings share a key:
+  - `{method}_{host}_{path}_{key_hash}_{content_hash}.json`
+- Recorded responses now persist more metadata for safer fixtures:
+  - **Blocking** recordings persist the response **status code** and **headers**
+  - **Streaming** recordings persist response **headers** captured from `stream_start` (and trailing headers when available)
+
 ## 3.0.1 - 2025-12-10
 
 ### Added
@@ -97,7 +338,7 @@ let assert Ok(req_id) = client.stream_messages(request)
 After (3.0):
 
 ```gleam
-let assert Ok(stream) = client.new
+let assert Ok(stream) = client.new()
   |> client.on_stream_chunk(fn(data) { process_chunk(data) })
   |> client.start_stream()
 
@@ -194,7 +435,7 @@ let headers: List(Header) = client.get_headers(req)
 
 - **Breaking (for direct constructor usage only)**: `ClientRequest` type is now opaque
   - The constructor can no longer be used directly for pattern matching
-  - Use builder pattern (`client.new` + setters) and getter functions instead
+- Use builder pattern (`client.new()` + setters) and getter functions instead
   - This change only affects code that was directly constructing or pattern matching `ClientRequest`
   - The builder pattern (documented public API) remains unchanged and non-breaking
 
